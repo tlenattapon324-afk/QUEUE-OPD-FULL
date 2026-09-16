@@ -126,7 +126,7 @@
 
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 
-.form-label {
+.login-card .form-label {
   font-size: 13px;
   font-weight: 600;
   color: #374151;

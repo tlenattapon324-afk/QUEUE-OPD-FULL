@@ -135,17 +135,6 @@ export async function login(
   return fetchJSON('/auth/login', { method: 'POST', body: JSON.stringify({ username: u, password: p }) })
 }
 
-// Checks whether the given officer's group has access to a specific HOSxP task id, via
-// officer_group_task_access → officer_group → officer_group_list. Used to gate the connection
-// settings screen to officer_task_id '77' (system-administrator access) instead of a hard-coded
-// password.
-export async function checkTaskAccess(
-  username: string, taskId: string
-): Promise<{ success: boolean; hasAccess: boolean; message?: string }> {
-  if (isElectron()) return { success: true, hasAccess: false }
-  return fetchJSON('/auth/task-access', { method: 'POST', body: JSON.stringify({ username, taskId }) })
-}
-
 // ─── Queue ────────────────────────────────────────────────────────────────────
 
 export async function getQueueList(

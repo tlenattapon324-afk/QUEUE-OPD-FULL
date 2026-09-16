@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadSettings, login } from '../lib/api'
+import { retrieveBmsSession } from '../services/bmsSession'
+import { handleUrlSession, getSessionCookie, setSessionCookie, removeSessionCookie } from '../utils/sessionStorage'
 import './Login.css'
 
 export default function LoginPage() {
@@ -14,9 +16,51 @@ export default function LoginPage() {
   const passRef = useRef<HTMLInputElement>(null)
   const submitRef = useRef<HTMLButtonElement>(null)
 
+  // BMS session (alternate login — see BMS-SESSION-SPECIFICATION.md)
+  const [bmsChecking, setBmsChecking] = useState(false)
+  const [showBmsInput, setShowBmsInput] = useState(false)
+  const [bmsSessionId, setBmsSessionId] = useState('')
+  const [bmsError, setBmsError] = useState('')
+
   useEffect(() => {
     loadSettings().then(s => setHasSettings(!!s))
   }, [])
+
+  const enterWithBmsSession = async (sessionId: string) => {
+    setBmsChecking(true)
+    setBmsError('')
+    try {
+      const data = await retrieveBmsSession(sessionId)
+      if (data.MessageCode === 200) {
+        setSessionCookie(sessionId)
+        sessionStorage.setItem('officer', data.result?.user_info?.name || 'BMS User')
+        navigate('/queue-call')
+        return
+      }
+      if (data.MessageCode === 500) {
+        removeSessionCookie()
+        setBmsError('BMS Session หมดอายุ กรุณาเข้าสู่ระบบใหม่')
+      } else {
+        setBmsError(data.Message || 'BMS Session ไม่ถูกต้อง')
+      }
+    } catch {
+      setBmsError('เกิดข้อผิดพลาดในการเชื่อมต่อ BMS Session')
+    } finally {
+      setBmsChecking(false)
+    }
+  }
+
+  // Auto-login: a bms-session-id arriving via URL (fresh link from HOSxP) or a cookie left
+  // over from a previous 7-day session skips the username/password form entirely.
+  useEffect(() => {
+    const sessionId = handleUrlSession() || getSessionCookie()
+    if (sessionId) enterWithBmsSession(sessionId)
+  }, [])
+
+  const handleBmsConnect = () => {
+    if (!bmsSessionId.trim() || bmsChecking) return
+    enterWithBmsSession(bmsSessionId.trim())
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,6 +96,12 @@ export default function LoginPage() {
           <p className="login-subtitle">ระบบจัดการคิวผู้ป่วยนอก</p>
         </div>
 
+        {bmsChecking && !showBmsInput ? (
+          <div className="login-card card animate-scale" style={{ textAlign: 'center', padding: '48px 32px' }}>
+            <span className="spinner" style={{ borderColor: 'rgba(37,99,235,0.25)', borderTopColor: '#2563EB' }} />
+            <p style={{ marginTop: 14, color: '#1e3a5f', fontWeight: 600 }}>กำลังตรวจสอบ BMS Session...</p>
+          </div>
+        ) : (
         <div className="login-card card animate-scale">
           <h2 className="login-card-title">เข้าสู่ระบบ</h2>
 
@@ -113,7 +163,35 @@ export default function LoginPage() {
             </svg>
             ตั้งค่าการเชื่อมต่อฐานข้อมูล
           </button>
+
+          {!showBmsInput ? (
+            <button className="btn btn-ghost settings-btn" style={{ marginTop: 10 }} onClick={() => { setShowBmsInput(true); setBmsError('') }}>
+              <span>🛡️</span> เข้าสู่ระบบด้วย BMS Session
+            </button>
+          ) : (
+            <div className="form-group" style={{ marginTop: 14 }}>
+              <label className="form-label">BMS Session ID</label>
+              <div className="input-wrap">
+                <input className="input" type="text" placeholder="วาง Session ID ที่นี่"
+                  value={bmsSessionId} onChange={e => { setBmsSessionId(e.target.value); setBmsError('') }}
+                  autoComplete="off"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleBmsConnect() } }} />
+              </div>
+              {bmsError && (
+                <div className="alert alert-error animate-fade" style={{ marginTop: 8 }}>⚠ {bmsError}</div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="btn btn-ghost settings-btn" style={{ flex: 1, width: 'auto' }} onClick={() => { setShowBmsInput(false); setBmsSessionId(''); setBmsError('') }}>
+                  ยกเลิก
+                </button>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleBmsConnect} disabled={bmsChecking || !bmsSessionId.trim()}>
+                  {bmsChecking ? <><span className="spinner" /> กำลังเชื่อมต่อ...</> : <>เชื่อมต่อ</>}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+        )}
 
         <p className="login-footer">Queue OPD v1.0 &copy; 2026 BMS</p>
       </div>

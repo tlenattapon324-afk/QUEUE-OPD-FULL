@@ -20,5 +20,26 @@
       "3",
       "4"
     ]
+  },
+  {
+    "name": "ห้องยา OPD",
+    "bgColor": "#00dbb7",
+    "textColor": "#FFFFFF",
+    "queueColor": "#00BCD4",
+    "font": "Sarabun",
+    "fontSize": 120,
+    "title": "ระบบคิวผู้ป่วยนอก",
+    "subTitle": "OPD Queue System",
+    "showClock": true,
+    "queueBgColor": "rgba(0,188,212,0.15)",
+    "showHistory": true,
+    "animationType": "scale",
+    "soundEnabled": false,
+    "channels": [
+      "1",
+      "2",
+      "3"
+    ],
+    "id": "1786074803595"
   }
 ]

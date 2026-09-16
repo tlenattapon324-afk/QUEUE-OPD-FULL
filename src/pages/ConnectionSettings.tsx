@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { loadSettings, saveSettings, testConnection, checkQueueOpdQsSlotTable, createQueueOpdQsSlotTable, login, checkTaskAccess } from '../lib/api'
+import { loadSettings, saveSettings, testConnection, checkQueueOpdQsSlotTable, createQueueOpdQsSlotTable } from '../lib/api'
 import './ConnectionSettings.css'
 
 const DEFAULT: DbSettings = {
@@ -14,147 +14,8 @@ const DEFAULT: DbSettings = {
   apiToken: ''
 }
 
-// HOSxP task id that officer_group_task_access must grant for an officer to be treated as a
-// system administrator here — matches whatever task the hospital's own permission setup uses
-// for "ตั้งค่าระบบ" access.
-const ADMIN_TASK_ID = '77'
-
-// The server responds with this exact message from /api/auth/login when db-settings.json doesn't
-// exist yet — i.e. genuinely first-time setup, before any database (and therefore any officer) is
-// reachable at all. There's no admin identity to check in that state, so the gate lets it through
-// rather than permanently locking a fresh install out of its own initial configuration.
-const NOT_CONFIGURED_MESSAGE = 'ยังไม่ได้ตั้งค่าการเชื่อมต่อ'
-
-function LoginGate({ onPass }: { onPass: () => void }) {
-  const navigate = useNavigate()
-  const [user, setUser] = useState('')
-  const [pass, setPass] = useState('')
-  const [error, setError] = useState('')
-  const [showPass, setShowPass] = useState(false)
-  const [editable, setEditable] = useState(false)
-  const [checking, setChecking] = useState(false)
-  const [blocked, setBlocked] = useState(false)
-
-  useEffect(() => {
-    const t = setTimeout(() => setEditable(true), 100)
-    return () => clearTimeout(t)
-  }, [])
-
-  // Real officer login (same officer table as the main app), followed by a check that the
-  // officer's group has HOSxP task id 77 — replaces the old hard-coded admin/adminqueue check.
-  const handleLogin = async () => {
-    if (!user || !pass || checking) return
-    setChecking(true)
-    setError('')
-    try {
-      const res = await login(user, pass)
-      if (!res.success) {
-        if (res.message === NOT_CONFIGURED_MESSAGE) { onPass(); return }
-        setError(res.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
-        setPass('')
-        return
-      }
-      const access = await checkTaskAccess(user, ADMIN_TASK_ID)
-      if (access.success && access.hasAccess) {
-        onPass()
-      } else {
-        setBlocked(true)
-      }
-    } catch {
-      setError('เกิดข้อผิดพลาดในการเชื่อมต่อ')
-    } finally {
-      setChecking(false)
-    }
-  }
-
-  return (
-    <div className="settings-bg">
-      <div className="bg-circle c1" />
-      <div className="bg-circle c2" />
-      <div className="settings-container animate-fade" style={{ justifyContent: 'center', minHeight: '80vh' }}>
-        <div className="settings-card card animate-scale" style={{ maxWidth: 400, margin: '0 auto', width: '100%' }}>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div className="settings-icon" style={{ margin: '0 auto 12px' }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="11" width="18" height="11" rx="2" stroke="#00BCD4" strokeWidth="2"/>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="#00BCD4" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <h2 className="settings-title" style={{ fontSize: 20 }}>เข้าสู่ระบบ</h2>
-            <p className="settings-subtitle">ยืนยันตัวตนเพื่อแก้ไขการตั้งค่าการเชื่อมต่อ</p>
-          </div>
-
-          <div className="settings-grid">
-            <div className="form-group full">
-              <label className="form-label">ชื่อผู้ใช้</label>
-              <input
-                className={`input${error ? ' input-error' : ''}`}
-                type="text"
-                placeholder="Username"
-                value={user}
-                onChange={e => { setUser(e.target.value); setError('') }}
-                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                autoComplete="new-password"
-                readOnly={!editable}
-                autoFocus
-              />
-            </div>
-            <div className="form-group full">
-              <label className="form-label">รหัสผ่าน</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  className={`input${error ? ' input-error' : ''}`}
-                  type={showPass ? 'text' : 'password'}
-                  placeholder="Password"
-                  value={pass}
-                  onChange={e => { setPass(e.target.value); setError('') }}
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  style={{ paddingRight: 40 }}
-                  autoComplete="new-password"
-                  readOnly={!editable}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(v => !v)}
-                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#90caf9', fontSize: 16 }}
-                  tabIndex={-1}
-                >
-                  {showPass ? '🙈' : '👁'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {error && (
-            <div className="alert alert-error animate-fade">✗ {error}</div>
-          )}
-
-          <div className="settings-actions" style={{ marginTop: 20 }}>
-            <button className="btn btn-ghost" onClick={() => navigate(-1)}>ยกเลิก</button>
-            <button className="btn btn-primary" onClick={handleLogin} disabled={checking} style={{ flex: 1 }}>
-              {checking ? <><span className="spinner" /> กำลังตรวจสอบสิทธิ์...</> : <>🔓 เข้าสู่ระบบ</>}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {blocked && (
-        <div className="access-denied-overlay" onClick={() => setBlocked(false)}>
-          <div className="access-denied-box" onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 44 }}>⛔</div>
-            <h3>ไม่มีสิทธิ์เข้าถึง</h3>
-            <p>บัญชีนี้ไม่มีสิทธิ์ตั้งค่าการเชื่อมต่อระบบ กรุณาติดต่อ Admin ผู้ดูแลระบบ</p>
-            <button className="btn btn-danger" onClick={() => setBlocked(false)}>ปิด</button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export default function ConnectionSettingsPage() {
   const navigate = useNavigate()
-  const [authed, setAuthed] = useState(false)
   const [form, setForm] = useState<DbSettings>(DEFAULT)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -237,8 +98,6 @@ export default function ConnectionSettingsPage() {
     setSaving(false)
     navigate('/login')
   }
-
-  if (!authed) return <LoginGate onPass={() => setAuthed(true)} />
 
   return (
     <div className="settings-bg">
@@ -379,7 +238,6 @@ export default function ConnectionSettingsPage() {
             <li>ข้อมูลการเชื่อมต่อจะถูกเก็บไว้ในไฟล์ <code>data/db-settings.json</code></li>
             <li>การ login จะใช้ตาราง <code>officer</code> ในฐานข้อมูลที่เชื่อมต่อ</li>
             <li>รหัสผ่านใน officer_login_password_md5 ต้องเป็น MD5 hash</li>
-            <li>เข้าหน้านี้ได้เฉพาะบัญชีที่มีสิทธิ์ officer_task_id = {ADMIN_TASK_ID} เท่านั้น</li>
           </ul>
         </div>
       </div>
