@@ -68,6 +68,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "QUEUE-OPD-FULL.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
