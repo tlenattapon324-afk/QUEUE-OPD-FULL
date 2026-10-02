@@ -48,10 +48,17 @@
     File /nonfatal "${BUILD_RESOURCES_DIR}\voices\th-TH\NUSData\M1054Pattara.keyboard.WIH"
     File /nonfatal "${BUILD_RESOURCES_DIR}\voices\th-TH\NUSData\M1054Pattara.keyboard.WVE"
 
-    SetOutPath "$WINDIR\System32\Speech_OneCore\common\th-TH"
-    File /nonfatal "${BUILD_RESOURCES_DIR}\voices\common-th\tokens_TTS_th-TH.xml"
-    SetOutPath "$WINDIR\SysWOW64\Speech_OneCore\Common\th-TH"
-    File /nonfatal "${BUILD_RESOURCES_DIR}\voices\common-th\tokens_TTS_th-TH.xml"
+    ; These two paths are under System32/SysWOW64 and on some systems carry a
+    ; TrustedInstaller-only ACL (Windows Resource Protection) that blocks writes even
+    ; from an elevated Administrator — "File" would raise a blocking Abort/Retry/Ignore
+    ; dialog in that case (that dialog is NOT silenced by /nonfatal, which only affects
+    ; the compiler's behavior when the *source* file is missing at build time, not a
+    ; runtime write failure). Route through a plain shell copy instead, whose exit code
+    ; we never check, so a protected system fails silently and install just continues.
+    SetOutPath "$PLUGINSDIR"
+    File "${BUILD_RESOURCES_DIR}\voices\common-th\tokens_TTS_th-TH.xml"
+    nsExec::Exec 'cmd /c copy /y "$PLUGINSDIR\tokens_TTS_th-TH.xml" "$WINDIR\System32\Speech_OneCore\common\th-TH\tokens_TTS_th-TH.xml"'
+    nsExec::Exec 'cmd /c copy /y "$PLUGINSDIR\tokens_TTS_th-TH.xml" "$WINDIR\SysWOW64\Speech_OneCore\Common\th-TH\tokens_TTS_th-TH.xml"'
 
     WriteRegStr HKLM "SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens\MSTTS_V110_thTH_Pattara" "" "Microsoft Pattara - Thai (Thailand)"
     WriteRegStr HKLM "SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens\MSTTS_V110_thTH_Pattara" "41E" "Microsoft Pattara - Thai (Thailand)"
