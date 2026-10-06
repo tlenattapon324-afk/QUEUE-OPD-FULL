@@ -371,3 +371,18 @@ export async function deleteDisplayConfig(id: string): Promise<{ success: boolea
   if (isElectron()) return window.electronAPI.deleteDisplayConfig(id)
   return fetchJSON(`/display/configs/${id}`, { method: 'DELETE' })
 }
+
+
+// ─── Queue staging board ────────────────────────────────────────────────────────
+
+export type QueueStagingMap = Record<string, Record<string, string[]>>
+
+export async function getQueueStaging(): Promise<QueueStagingMap> {
+  return fetchJSON<QueueStagingMap>('/queue-staging')
+}
+
+export async function moveQueuesToStaging(
+  displayId: string, channel: string | null, keys: string[]
+): Promise<{ success: boolean }> {
+  return fetchJSON('/queue-staging/move', { method: 'POST', body: JSON.stringify({ displayId, channel, keys }) })
+}

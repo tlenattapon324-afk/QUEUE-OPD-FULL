@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getQueueList, callQueue, onQueueCalled, updateQueueStatus,
-  getServicePoints, getDisplayConfigs, getDisplayQDConfig, clearDisplayQueues, getCallsToday, prewarmTTS, getLabXray, getAppointmentDoctors, type LabXrayStatus
+  getServicePoints, getDisplayConfigs, getDisplayQDConfig, clearDisplayQueues, getCallsToday, prewarmTTS, getLabXray, getAppointmentDoctors, type LabXrayStatus,
+  getQueueStaging, moveQueuesToStaging, type QueueStagingMap
 } from '../lib/api'
 import './QueueCall.css'
 
@@ -90,6 +91,17 @@ export default function QueueCallPage() {
   const [lockedVn, setLockedVn] = useState<string | null>(null)
   const [showShortcutHelp, setShowShortcutHelp] = useState(false)
 
+  // Queue staging board (บอร์ดเตรียมคิว) — the selected จอแสดงคิว's channels become columns; queues
+  // picked from the main table are parked in a column ahead of time. Purely organisational:
+  // calling still happens from the main table, so this never changes what the main page does.
+  const [showBoard, setShowBoard] = useState(() => localStorage.getItem('qc_show_board') === 'true')
+  const [staging, setStaging] = useState<QueueStagingMap>({})
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const [boardFilter, setBoardFilter] = useState('')
+  const [hiddenChannels, setHiddenChannels] = useState<Record<string, string[]>>(() => {
+    try { return JSON.parse(localStorage.getItem('qc_board_hidden') || '{}') } catch { return {} }
+  })
+
   const [labXrayMap, setLabXrayMap] = useState<Record<string, LabXrayStatus>>({})
   const lastCalledVnRef = useRef<string | null>(null)
   const currentSpNameRef = useRef<string>('')
@@ -134,6 +146,23 @@ export default function QueueCallPage() {
 
   useEffect(() => { loadSP() }, [loadSP])
   useEffect(() => { getDisplayConfigs().then(setDisplayConfigs) }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('qc_show_board', String(showBoard)) } catch {}
+  }, [showBoard])
+
+  useEffect(() => {
+    try { localStorage.setItem('qc_board_hidden', JSON.stringify(hiddenChannels)) } catch {}
+  }, [hiddenChannels])
+
+  useEffect(() => { setSelectedKeys([]); setBoardFilter('') }, [selectedDisplayId])
+
+  const loadStaging = useCallback(() => { getQueueStaging().then(setStaging).catch(() => {}) }, [])
+  useEffect(() => {
+    loadStaging()
+    const t = setInterval(loadStaging, 15000)
+    return () => clearInterval(t)
+  }, [loadStaging])
   useEffect(() => {
     getAppointmentDoctors().then(r => { if (r.success) setDoctorList(r.data) })
   }, [])
@@ -421,6 +450,8 @@ export default function QueueCallPage() {
   }
 
   const doCall = async (queue: QueueRow) => {
+    // A queue parked in a board channel is called into that channel; anything else uses the selected ช่องบริการ.
+    const sp = channelByKey.get(queueKeyOf(queue)) || currentSpName
     // Main page is calling — clear mini flag so opener does NOT refocus mini
     ;(window as any).__miniCalledAt = null
     // ตรวจว่าจอที่เลือกกรองแผนก และแผนกคนไข้ไม่ตรง → ห้ามเรียก (ใช้ state ที่ sync แล้ว)
@@ -442,12 +473,12 @@ export default function QueueCallPage() {
       // Queue_Prefix: one VN can have multiple opd_qs_slot rows (one per doctor/service point) —
       // identifying by VN alone is ambiguous and could call a different doctor's slot than the
       // one on screen. queue_slot is unique per row, so prefer it whenever this row has one.
-      const res = await callQueue(queue.queue_slot || queue.vn, currentSpName, mode, selectedDisplayId || undefined)
+      const res = await callQueue(queue.queue_slot || queue.vn, sp, mode, selectedDisplayId || undefined)
       if (res.success) {
         lastCalledVnRef.current = queue.vn
         const calledNo = res.queueNo || queue.queue_no
         const calledAt = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
-        setCurrentCalled({ queueNo: calledNo, servicePoint: currentSpName, calledAt })
+        setCurrentCalled({ queueNo: calledNo, servicePoint: sp, calledAt })
         setCallTimeMap(prev => ({
           ...prev,
           [queue.vn]: calledAt,
@@ -458,12 +489,12 @@ export default function QueueCallPage() {
         // (Queue_Prefix), and matching by vn alone would optimistically mark ALL of them as calling.
         setQueues(prev => prev.map(q =>
           (queue.queue_slot ? q.queue_slot === queue.queue_slot : q.vn === queue.vn)
-            ? { ...q, status: 'calling' as QueueStatus, service_point: currentSpName }
+            ? { ...q, status: 'calling' as QueueStatus, service_point: sp }
             : q
         ))
         if (!selectedDisplayId) {
           const r = callNextBtnRef.current?.getBoundingClientRect()
-          setCheckDisplayPopup({ queueNo: calledNo, sp: currentSpName, px: r ? r.right + 12 : 320, py: r ? r.top + r.height / 2 : 200 })
+          setCheckDisplayPopup({ queueNo: calledNo, sp: sp, px: r ? r.right + 12 : 320, py: r ? r.top + r.height / 2 : 200 })
           setTimeout(() => setCheckDisplayPopup(null), 4000)
         }
       } else {
@@ -677,14 +708,24 @@ export default function QueueCallPage() {
     (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
   ).length
 
+  const queueKeyOf = (q: QueueRow) => (q.queue_slot ? `${q.vn}::${q.queue_slot}` : q.vn)
+
+  const boardChannels = selectedDisplay?.channels || []
+  const boardMap: Record<string, string[]> = selectedDisplayId ? (staging[selectedDisplayId] || {}) : {}
+
+  // queue key -> channel it's parked in on the selected display (a queue sits in at most one)
+  const channelByKey = new Map<string, string>()
+  for (const ch of boardChannels) for (const k of boardMap[ch] || []) channelByKey.set(k, ch)
+
   const filteredQueues = (filterStatus === 'done' || filterStatus === 'skip' ? queues : activeQueues)
     .filter(q => {
       const matchDept = filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q))
       const matchStatus = filterStatus === 'all' ? true : q.status === filterStatus
+      const matchBoard = !boardFilter || channelByKey.get(queueKeyOf(q)) === boardFilter
       const matchVisit = visitFilter === 'all' || q.visit_type === visitFilter
       const matchDoctor = visitFilter !== 'appt' || selectedDoctors.length === 0 || (!!q.doctor_name && selectedDoctors.includes(q.doctor_name))
       const matchClinic = visitFilter !== 'appt' || selectedClinics.length === 0 || (!!q.clinic_name && selectedClinics.includes(q.clinic_name))
-      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic
+      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard
     })
     .sort((a, b) => {
       // Queue_OPD / Queue_OPD_Room: sort oqueue (queue_no) numerically ascending
@@ -738,6 +779,43 @@ export default function QueueCallPage() {
     (visitFilter !== 'appt' || selectedDoctors.length === 0 || (!!q.doctor_name && selectedDoctors.includes(q.doctor_name))) &&
     (visitFilter !== 'appt' || selectedClinics.length === 0 || (!!q.clinic_name && selectedClinics.includes(q.clinic_name)))
   )
+
+  // ── Staging board ───────────────────────────────────────────────────────────
+
+  const boardQueuesOf = (ch: string) => queues
+    .filter(q => channelByKey.get(queueKeyOf(q)) === ch)
+    .sort((a, b) => String(a.queue_slot || a.queue_no || '').localeCompare(String(b.queue_slot || b.queue_no || ''), undefined, { numeric: true }))
+
+  const boardCount = queues.filter(q => channelByKey.has(queueKeyOf(q))).length
+
+  const hiddenOnBoard = selectedDisplayId ? (hiddenChannels[selectedDisplayId] || []) : []
+  const visibleChannels = boardChannels.filter(ch => !hiddenOnBoard.includes(ch))
+  const toggleChannelVisible = (ch: string) => {
+    if (!selectedDisplayId) return
+    setHiddenChannels(prev => {
+      const cur = prev[selectedDisplayId] || []
+      return { ...prev, [selectedDisplayId]: cur.includes(ch) ? cur.filter(c => c !== ch) : [...cur, ch] }
+    })
+  }
+
+  const toggleSelectKey = (key: string) =>
+    setSelectedKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
+
+  const setSelectionForRows = (rows: QueueRow[], on: boolean) => {
+    const keys = rows.map(queueKeyOf)
+    setSelectedKeys(prev => on
+      ? Array.from(new Set([...prev, ...keys]))
+      : prev.filter(k => !keys.includes(k)))
+  }
+
+  const moveKeysToChannel = async (keys: string[], channel: string | null) => {
+    if (!selectedDisplayId || keys.length === 0) return
+    try {
+      await moveQueuesToStaging(selectedDisplayId, channel, keys)
+      setSelectedKeys(prev => prev.filter(k => !keys.includes(k)))
+      loadStaging()
+    } catch {}
+  }
 
   return (
     <div className="qc-bg">
@@ -907,6 +985,16 @@ export default function QueueCallPage() {
             }}
           >
             {clearMsg ? '✓ เคลียแล้ว' : (selectedDisplay ? `🗑 เคลียคิว "${selectedDisplay.name}"` : '🗑 เคลียทุกจอ')}
+          </button>
+
+          {/* ── บอร์ดเตรียมคิว ── */}
+          <button
+            className={`qc-board-toggle${showBoard ? ' active' : ''}`}
+            disabled={!selectedDisplay || boardChannels.length === 0}
+            title={selectedDisplay ? `บอร์ดเตรียมคิวของจอ "${selectedDisplay.name}"` : 'เลือกจอแสดงคิวก่อน'}
+            onClick={() => setShowBoard(v => !v)}
+          >
+            🗂 บอร์ดเตรียมคิว{boardCount > 0 ? ` (${boardCount})` : ''}
           </button>
         </div>
 
@@ -1350,6 +1438,26 @@ export default function QueueCallPage() {
                   {s === 'all' ? `ทั้งหมด (${deptFilteredQueues.length})` : `${statusLabel[s]} (${countByStatus(s)})`}
                 </button>
               ))}
+              {boardChannels.length > 0 && (
+                <div className="qc-board-filter">
+                  <span className="qc-board-filter-label">🗂 บอร์ด</span>
+                  {boardChannels.map(ch => {
+                    const n = boardQueuesOf(ch).length
+                    return (
+                      <button key={ch}
+                        className={`qc-tab qc-board-filter-chip ${boardFilter === ch ? 'active' : ''}`}
+                        onClick={() => {
+                          if (boardFilter === ch) { setBoardFilter(''); return }
+                          setBoardFilter(ch)
+                          setServicePointId(ch)
+                        }}
+                        title={`แสดงเฉพาะคิวในช่อง ${ch} และเรียกจากช่องนี้`}>
+                        ช่อง {ch} ({n})
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
               <button className="qc-history-btn" onClick={() => navigate('/queue-history')}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
@@ -1359,6 +1467,20 @@ export default function QueueCallPage() {
               </button>
             </div>
           </div>
+
+          {selectedKeys.length > 0 && (
+            <div className="qc-stage-toolbar">
+              <span className="qc-stage-toolbar-count">เลือก {selectedKeys.length} คิว → ใส่บอร์ด</span>
+              {boardChannels.length === 0 ? (
+                <span className="qc-stage-toolbar-hint">เลือกจอแสดงคิวที่มีช่องก่อน</span>
+              ) : boardChannels.map(ch => (
+                <button key={ch} className="qc-stage-chip" onClick={() => moveKeysToChannel(selectedKeys, ch)}>
+                  {ch}
+                </button>
+              ))}
+              <button className="qc-stage-chip ghost" onClick={() => setSelectedKeys([])}>ยกเลิกการเลือก</button>
+            </div>
+          )}
 
           <div className="qc-table-wrap">
             {loading && <div className="qc-progress-bar"><div className="qc-progress-bar-inner" /></div>}
@@ -1375,6 +1497,12 @@ export default function QueueCallPage() {
             ) : (
               <table className="qc-table">
                 <thead><tr>
+                  <th className="qc-th-select">
+                    <input type="checkbox"
+                      checked={filteredQueues.length > 0 && filteredQueues.every(q => selectedKeys.includes(queueKeyOf(q)))}
+                      onChange={e => setSelectionForRows(filteredQueues, e.target.checked)}
+                      title="เลือกทั้งหมดที่แสดงอยู่" />
+                  </th>
                   <th>วันที่</th>
                   <th className="qc-th-lab">Lab</th>
                   <th className="qc-th-lab">X-ray</th>
@@ -1413,6 +1541,14 @@ export default function QueueCallPage() {
                           setLockedVn(prev => prev === q.vn ? null : q.vn)
                         }
                       }}>
+                      <td className="qc-td-select" onClick={e => e.stopPropagation()}>
+                        <input type="checkbox"
+                          checked={selectedKeys.includes(queueKeyOf(q))}
+                          onChange={() => toggleSelectKey(queueKeyOf(q))} />
+                        {channelByKey.has(queueKeyOf(q)) && (
+                          <span className="qc-stage-tag" title="อยู่ในบอร์ดเตรียมคิว">{channelByKey.get(queueKeyOf(q))}</span>
+                        )}
+                      </td>
                       <td className="qc-td-date">
                         <div>{q.vstdate ? String(q.vstdate).substring(0, 10) : '—'}</div>
                         {q.vsttime && <div className="qc-td-time">{String(q.vsttime).substring(0, 5)}</div>}
@@ -1522,6 +1658,62 @@ export default function QueueCallPage() {
             )}
           </div>
         </main>
+
+        {/* ─── Staging Board ─── */}
+        {showBoard && selectedDisplay && boardChannels.length > 0 && (
+          <aside className="qc-board">
+            <div className="qc-board-head">
+              <span className="qc-board-title">🗂 {selectedDisplay.name}</span>
+              <div className="qc-board-chips">
+                {boardChannels.map(ch => {
+                  const on = !hiddenOnBoard.includes(ch)
+                  return (
+                    <button key={ch} className={`qc-board-chip${on ? ' on' : ''}`}
+                      onClick={() => toggleChannelVisible(ch)}
+                      title={on ? `ซ่อนช่อง ${ch}` : `แสดงช่อง ${ch}`}>
+                      {on ? '👁' : '—'} ช่อง {ch}
+                    </button>
+                  )
+                })}
+              </div>
+              <button className="qc-board-close" onClick={() => setShowBoard(false)} title="ปิดบอร์ด">✕</button>
+            </div>
+            <div className="qc-board-columns">
+              {visibleChannels.length === 0 && (
+                <div className="qc-box-empty">ทุกช่องถูกซ่อนอยู่ — กดชื่อช่องด้านบนเพื่อแสดง</div>
+              )}
+              {visibleChannels.map(ch => {
+                const rows = boardQueuesOf(ch)
+                return (
+                  <div key={ch} className="qc-board-col">
+                    <div className="qc-board-col-head">
+                      <span>ช่อง {ch}</span>
+                      <span className="qc-board-col-count">{rows.length}</span>
+                    </div>
+                    <div className="qc-board-col-list">
+                      {rows.length === 0 ? (
+                        <div className="qc-box-empty">ยังไม่มีคิว<br />เลือกคิวจากตารางแล้วกดช่องนี้</div>
+                      ) : rows.map((q, i) => (
+                        <div key={`${q.vn}-${i}`} className="qc-board-card">
+                          <div className="qc-board-card-top">
+                            <span className="qc-board-qno">{q.queue_slot || q.queue_no || '—'}</span>
+                            <button className="qc-board-remove" title="นำออกจากบอร์ด"
+                              onClick={() => moveKeysToChannel([queueKeyOf(q)], null)}>✕</button>
+                          </div>
+                          <div className="qc-board-card-name">{q.queue_name || '—'}</div>
+                          <div className="qc-board-card-meta">
+                            <span className={`qc-board-status s-${q.status}`}>{statusLabel[q.status] || q.status}</span>
+                            {q.department || '—'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* ─── Confirmation Modal ─── */}
@@ -1539,7 +1731,7 @@ export default function QueueCallPage() {
               <div className="qc-confirm-no">{pendingCall.queue_slot || pendingCall.queue_no || '—'}</div>
               <p className="qc-confirm-name">{pendingCall.queue_name || '—'}</p>
               <p className="qc-confirm-meta">
-                {pendingCall.department || '—'} &nbsp;·&nbsp; ช่อง <strong>{currentSpName}</strong>
+                {pendingCall.department || '—'} &nbsp;·&nbsp; ช่อง <strong>{pendingCall ? (channelByKey.get(queueKeyOf(pendingCall)) || currentSpName) : currentSpName}</strong>
               </p>
             </div>
             <div className="qc-confirm-actions">

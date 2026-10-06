@@ -20,6 +20,7 @@ const PORT = process.env.PORT || 3200
 const DATA_DIR = process.env.QUEUE_DATA_DIR || path.join(__dirname, '..', 'data')
 const SETTINGS_FILE = path.join(DATA_DIR, 'db-settings.json')
 const DISPLAY_CONFIGS_FILE = path.join(DATA_DIR, 'display-configs.json')
+const QUEUE_STAGING_FILE = path.join(DATA_DIR, 'queue-staging.json')
 const TTS_CACHE_DIR = path.join(DATA_DIR, 'tts-cache')
 
 // Ensure data dirs exist
@@ -163,6 +164,20 @@ function loadDisplayConfigs() {
 
 function saveDisplayConfigs(configs) {
   fs.writeFileSync(DISPLAY_CONFIGS_FILE, JSON.stringify(configs, null, 2), 'utf-8')
+}
+
+// ─── Queue staging helpers ────────────────────────────────────────────────────
+// { [displayId]: { [channel]: string[] (queue keys) } } — a queue key is vn::queue_slot
+
+function loadQueueStaging() {
+  try {
+    if (fs.existsSync(QUEUE_STAGING_FILE)) return JSON.parse(fs.readFileSync(QUEUE_STAGING_FILE, 'utf-8'))
+  } catch {}
+  return {}
+}
+
+function saveQueueStaging(staging) {
+  fs.writeFileSync(QUEUE_STAGING_FILE, JSON.stringify(staging, null, 2), 'utf-8')
 }
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
@@ -1676,6 +1691,30 @@ app.put('/api/display/configs/:id', (req, res) => {
 app.delete('/api/display/configs/:id', (req, res) => {
   const configs = loadDisplayConfigs().filter(c => c.id !== req.params.id)
   saveDisplayConfigs(configs)
+  res.json({ success: true })
+})
+
+// ─── API: Queue staging board ─────────────────────────────────────────────────
+
+app.get('/api/queue-staging', (req, res) => {
+  res.json(loadQueueStaging())
+})
+
+// Moves queues into one channel of a display (or out of the board when channel is null).
+// A queue sits in at most one channel per display, so it's removed from the others first.
+app.post('/api/queue-staging/move', (req, res) => {
+  const { displayId, channel, keys } = req.body || {}
+  if (!displayId || !Array.isArray(keys)) return res.status(400).json({ success: false, message: 'invalid request' })
+  const staging = loadQueueStaging()
+  const board = staging[displayId] || {}
+  for (const ch of Object.keys(board)) {
+    board[ch] = board[ch].filter(k => !keys.includes(k))
+  }
+  if (channel) {
+    board[channel] = [...(board[channel] || []), ...keys.filter(k => !(board[channel] || []).includes(k))]
+  }
+  staging[displayId] = board
+  saveQueueStaging(staging)
   res.json({ success: true })
 })
 
