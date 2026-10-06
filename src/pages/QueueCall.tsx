@@ -814,6 +814,7 @@ export default function QueueCallPage() {
       await moveQueuesToStaging(selectedDisplayId, channel, keys)
       setSelectedKeys(prev => prev.filter(k => !keys.includes(k)))
       loadStaging()
+      try { localStorage.setItem('qc_staging_at', String(Date.now())) } catch {}
     } catch {}
   }
 

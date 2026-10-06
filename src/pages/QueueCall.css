@@ -1061,8 +1061,8 @@
 .qc-stage-tag {
   display: block; margin: 4px auto 0; width: fit-content;
   font-size: 10px; font-weight: 800; padding: 1px 6px;
-  background: rgba(0,151,167,0.14); color: #006064;
-  border: 1px solid rgba(0,151,167,0.35); border-radius: 6px;
+  background: #FB8C00; color: #fff;
+  border: 1px solid #E65100; border-radius: 6px;
 }
 
 .qc-stage-toolbar {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { getQueueList, callQueue, onQueueCalled, onQueueAudio, updateQueueStatus, getDisplayConfigs, getDisplayQDConfig, getCallsToday, prewarmTTS } from '../lib/api'
+import { getQueueList, callQueue, onQueueCalled, onQueueAudio, updateQueueStatus, getDisplayConfigs, getDisplayQDConfig, getCallsToday, prewarmTTS, getQueueStaging, type QueueStagingMap } from '../lib/api'
 import './QueueMini.css'
 
 // Copies the current document's stylesheets into a Document Picture-in-Picture window, which
@@ -31,6 +31,7 @@ type QueueMode = 'slot' | 'opd' | 'slot_cur' | 'cur_dep'
 
 export default function QueueMiniPage() {
   const [queues, setQueues] = useState<QueueRow[]>([])
+  const [staging, setStaging] = useState<QueueStagingMap>({})
   const [displayConfigs, setDisplayConfigs] = useState<DisplayConfigItem[]>([])
   // On open: sync from main page via loadDisplays (reads fresh localStorage after async)
   // These start empty/default and are overwritten by loadDisplays on mount
@@ -108,6 +109,13 @@ export default function QueueMiniPage() {
       setSelectedChannel(activeSp)
     } catch {}
   }, [])
+
+  const loadStaging = useCallback(() => { getQueueStaging().then(setStaging).catch(() => {}) }, [])
+  useEffect(() => {
+    loadStaging()
+    const t = setInterval(loadStaging, 15000)
+    return () => clearInterval(t)
+  }, [loadStaging])
 
   const loadQueues = useCallback(async () => {
     try {
@@ -351,6 +359,7 @@ export default function QueueMiniPage() {
     const handler = (e: StorageEvent) => {
       if (e.key === 'qc_mode' && e.newValue) setMode(e.newValue as QueueMode)
       if (e.key === 'qc_active_display') setSelectedDisplayId(e.newValue || '')
+      if (e.key === 'qc_staging_at') loadStaging()
       if (e.key === 'qc_active_sp') setSelectedChannel(e.newValue || '')
       if (e.key === 'qc_filter_depts') {
         try {
@@ -372,6 +381,16 @@ export default function QueueMiniPage() {
     setTimeout(() => setMsg(null), 3000)
   }
 
+  // A queue parked on the selected display's board calls into its channel; anything else uses the selected ช่องบริการ.
+  // Reads the cached board (kept fresh by the main page's storage signal and a periodic reload) so the call isn't delayed by a round trip.
+  const servicePointFor = (vn: string): string => {
+    const q = queues.find(r => (r.queue_slot || r.vn) === vn)
+    if (!q || !selectedDisplayId) return currentSpName
+    const key = q.queue_slot ? `${q.vn}::${q.queue_slot}` : q.vn
+    const board = staging[selectedDisplayId] || {}
+    return Object.keys(board).find(ch => (board[ch] || []).includes(key)) || currentSpName
+  }
+
   const executeCall = async (vn: string, queueNo?: string) => {
     window.focus()
     // Schedule focus retries after call — using moveBy(0,0) which Edge allows for popups
@@ -388,11 +407,12 @@ export default function QueueMiniPage() {
     )
     setCallingId(vn)
     try {
-      const res = await callQueue(vn, currentSpName, mode, selectedDisplayId || undefined)
+      const sp = servicePointFor(vn)
+      const res = await callQueue(vn, sp, mode, selectedDisplayId || undefined)
       if (res.success) {
         lastCalledVnRef.current = vn
         const calledNo = res.queueNo || queueNo || vn
-        setCurrentCalled({ queueNo: calledNo, servicePoint: currentSpName })
+        setCurrentCalled({ queueNo: calledNo, servicePoint: sp })
         flash(true, `เรียก ${calledNo} สำเร็จ`)
         window.focus()
         loadQueues()
