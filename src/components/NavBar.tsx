@@ -390,7 +390,7 @@ export default function NavBar() {
       <button
         className="app-nav-mini-btn"
         onClick={() => {
-          const w = 400, h = 640
+          const w = 320, h = 580
           const popup = window.open(
             '/#/queue-mini', 'queue-mini',
             `width=${w},height=${h},left=${window.screen.width - w - 20},top=${Math.max(0, window.screen.height - h - 60)},resizable=yes,menubar=no,toolbar=no,location=no,status=no`

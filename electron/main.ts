@@ -9,7 +9,7 @@ let httpServer: Server | null = null
 let miniWin: BrowserWindow | null = null
 let miniNormalBounds: Rectangle | null = null
 
-const MINI_DEFAULT_SIZE = { width: 400, height: 640 }
+const MINI_DEFAULT_SIZE = { width: 320, height: 580 }
 const MINI_ICON_SIZE = 80
 const MINI_ICON_MARGIN = 20
 

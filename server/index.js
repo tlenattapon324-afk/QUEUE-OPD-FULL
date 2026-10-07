@@ -13,7 +13,7 @@ const express = require('express')
 const cors = require('cors')
 const { WebSocketServer } = require('ws')
 const mysql = require('mysql2/promise')
-const { Client: PgClient } = require('pg')
+const { Client: PgClient, Pool: PgPool } = require('pg')
 const md5 = require('md5')
 
 const PORT = process.env.PORT || 3200
@@ -200,6 +200,29 @@ function getMysqlPool(settings) {
   return _mysqlPool
 }
 
+let _pgPool = null
+let _pgPoolSettings = null
+
+// Reused by every list/call/lab-xray/appointment-doctors query — this is the hot path hit on
+// every queue call. It used to open a brand-new TCP+auth connection per query (connect, run,
+// disconnect), which on a remote DB host adds a full round-trip of setup cost on top of the
+// query itself, before the call broadcast could go out. A pool amortizes that connection cost
+// away, the same way getMysqlPool already does for MySQL.
+function getPgPool(settings) {
+  const key = `${settings.host}:${settings.port}:${settings.database}:${settings.username}`
+  if (_pgPool && _pgPoolSettings === key) return _pgPool
+  if (_pgPool) { _pgPool.end().catch(() => {}) }
+  _pgPool = new PgPool({
+    host: settings.host, port: settings.port,
+    database: settings.database, user: settings.username,
+    password: settings.password,
+    max: 5, connectionTimeoutMillis: 5000
+  })
+  _pgPool.on('error', err => console.error('[pg pool]', err.message))
+  _pgPoolSettings = key
+  return _pgPool
+}
+
 async function queryDB(settings, sql, sqlPg, params) {
   if (!settings) throw new Error('ยังไม่ได้ตั้งค่าการเชื่อมต่อ')
   if (settings.type === 'mysql') {
@@ -207,18 +230,9 @@ async function queryDB(settings, sql, sqlPg, params) {
     const [rows] = await pool.execute(sql, params)
     return rows
   }
-  const client = new PgClient({
-    host: settings.host, port: settings.port,
-    database: settings.database, user: settings.username,
-    password: settings.password, connectionTimeoutMillis: 5000
-  })
-  await client.connect()
-  try {
-    const res = await client.query(sqlPg, params)
-    return res.rows
-  } finally {
-    await client.end()
-  }
+  const pool = getPgPool(settings)
+  const res = await pool.query(sqlPg, params)
+  return res.rows
 }
 
 // ─── Express app ─────────────────────────────────────────────────────────────
