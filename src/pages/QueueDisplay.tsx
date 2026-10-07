@@ -67,6 +67,7 @@ interface QDConfig {
   // Blink on call
   blinkEnabled: boolean
   blinkColor: string
+  blinkTarget: 'bg' | 'text'
   blinkCount: number
   blinkSpeed: number
   // Footer
@@ -156,6 +157,7 @@ const DEFAULT: QDConfig = {
   animationType: 'scale',
   blinkEnabled: true,
   blinkColor: '#ffeb3b',
+  blinkTarget: 'bg',
   blinkCount: 6,
   blinkSpeed: 300,
   showFooter: true,
@@ -1021,7 +1023,7 @@ export default function QueueDisplayPage() {
               )}
               <div key={`q-${rowKey}`} className="qd-td qd-td-queue" style={{
                 background: config.queueBg,
-                ...(isBlinking ? {
+                ...(isBlinking && config.blinkTarget !== 'text' ? {
                   animation: `qd-blink-anim ${config.blinkSpeed}ms step-end ${config.blinkCount}`,
                   '--qd-blink-color': config.blinkColor,
                   '--qd-queue-bg': config.queueBg,
@@ -1031,13 +1033,13 @@ export default function QueueDisplayPage() {
                   <div className={`qd-queue-cell ${animClass}`}>
                     {patientName ? (
                       <>
-                        <span className="qd-queue-no-small" style={{ color: config.queueColor }}>{badge && <span className="qd-badge-inline">{badge}</span>}{queueNo}</span>
+                        <span className="qd-queue-no-small" style={{ color: config.queueColor, ...textBlinkStyle(isBlinking) }}>{badge && <span className="qd-badge-inline">{badge}</span>}{queueNo}</span>
                         <span className="qd-patient-name-main" style={{ color: config.queueColor, fontSize: `${config.fontSize * 0.65}vw` }}>{patientName}</span>
                       </>
                     ) : (
                       <>
                         {badge && <span className="qd-badge">{badge}</span>}
-                        <span className="qd-queue-no" style={{ color: config.queueColor, fontSize: `${config.fontSize}vw` }}>{queueNo}</span>
+                        <span className="qd-queue-no" style={{ color: config.queueColor, fontSize: `${config.fontSize}vw`, ...textBlinkStyle(isBlinking) }}>{queueNo}</span>
                       </>
                     )}
                   </div>
@@ -1052,6 +1054,11 @@ export default function QueueDisplayPage() {
 
   // ─── Callboard layout: big "currently called" block + per-channel rows + upcoming preview ───
   // ส่วนที่ 1/2 มีขนาดตัวอักษรแยกกัน (cbFontSize1/cbFontSize2) และทุกส่วนเว้นช่องไฟระหว่างกัน
+  const textBlinkStyle = (on: boolean): React.CSSProperties =>
+    on && config.blinkTarget === 'text'
+      ? { animation: `qd-blink-text ${config.blinkSpeed}ms step-end ${config.blinkCount}` }
+      : {}
+
   const renderCallboard = () => {
     const cbIsBlinking = config.blinkEnabled && !!lastCalled && blinkingSPs.has(lastCalled.sp)
     const cbRawName = lastCalled && config.ttsShowName ? lastCalled.queueName : ''
@@ -1069,14 +1076,14 @@ export default function QueueDisplayPage() {
           <div key={`cb-big-${lastCalled?.animKey || 0}`} className="qd-cb-big" style={{
             background: config.cbBg1,
             border: `${config.borderWidth}px solid ${config.borderColor}`,
-            ...(cbIsBlinking ? {
+            ...(cbIsBlinking && config.blinkTarget !== 'text' ? {
               animation: `qd-blink-anim-cb1 ${config.blinkSpeed}ms step-end ${config.blinkCount}`,
             } as React.CSSProperties : {})
           }}>
             {lastCalled?.queueNo ? (
               <div key={`cb-${lastCalled.animKey}`} className={`qd-cb-big-cell ${animClass}`}>
                 {cbBadge && <span className="qd-badge qd-cb-badge">{cbBadge}</span>}
-                <span className="qd-cb-queue-no" style={{ color: config.queueColor, fontSize: `${fitQueueFontSize(lastCalled.queueNo, config.cbFontSize1)}vw` }}>
+                <span className="qd-cb-queue-no" style={{ color: config.queueColor, fontSize: `${fitQueueFontSize(lastCalled.queueNo, config.cbFontSize1)}vw`, ...textBlinkStyle(cbIsBlinking) }}>
                   {lastCalled.queueNo}
                 </span>
                 {cbPatientName && (
@@ -1150,12 +1157,12 @@ export default function QueueDisplayPage() {
                       <div key={`qbox-${rowKey}`} className="qd-cb2-queue-box" style={{
                         background: config.cbBg2,
                         border: boxBorder,
-                        ...(chIsBlinking ? {
+                        ...(chIsBlinking && config.blinkTarget !== 'text' ? {
                           animation: `qd-blink-anim-cb2 ${config.blinkSpeed}ms step-end ${config.blinkCount}`,
                         } as React.CSSProperties : {})
                       }}>
                         <div key={`ch-${rowKey}`} className={`qd-cb2-queue-no ${animClass}`}
-                          style={{ color: config.queueColor, fontSize: `${qn2FontSize}vw` }}>
+                          style={{ color: config.queueColor, fontSize: `${qn2FontSize}vw`, ...textBlinkStyle(chIsBlinking) }}>
                           {queueNo || <span className="qd-dash" style={{ fontSize: 'inherit' }}>—</span>}
                         </div>
                       </div>
@@ -1193,6 +1200,7 @@ export default function QueueDisplayPage() {
         @keyframes qd-blink-anim { 0%,100%{background-color:${config.blinkColor};} 50%{background-color:${config.queueBg};} }
         @keyframes qd-blink-anim-cb1 { 0%,100%{background-color:${config.blinkColor};} 50%{background-color:${config.cbBg1};} }
         @keyframes qd-blink-anim-cb2 { 0%,100%{background-color:${config.blinkColor};} 50%{background-color:${config.cbBg2};} }
+        @keyframes qd-blink-text { 0%,100%{color:${config.blinkColor};} 50%{color:${config.queueColor};} }
       `}</style>
 
       {/* ─── HEADER ──────────────────────────────────────────── */}
@@ -1653,6 +1661,20 @@ export default function QueueDisplayPage() {
               {config.blinkEnabled && <>
                 <SRow label="สีกระพริบ">
                   <CInput value={config.blinkColor} onChange={v => setConfig(c => ({ ...c, blinkColor: v }))} />
+                </SRow>
+                <SRow label="กระพริบที่">
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {([['bg', 'พื้นหลัง'], ['text', 'ตัวอักษร']] as const).map(([v, label]) => (
+                      <button key={v} type="button"
+                        onClick={() => setConfig(c => ({ ...c, blinkTarget: v }))}
+                        className={config.blinkTarget === v ? 'qd-seg-on' : 'qd-seg'}
+                        style={{ padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600,
+                          border: '1.5px solid #90caf9', background: config.blinkTarget === v ? '#1565c0' : '#fff',
+                          color: config.blinkTarget === v ? '#fff' : '#1565c0' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </SRow>
                 <SRow label={`จำนวนครั้ง: ${config.blinkCount} ครั้ง`}>
                   <input type="range" min="1" max="20" step="1" value={config.blinkCount}
