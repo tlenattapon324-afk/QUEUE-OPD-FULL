@@ -450,6 +450,51 @@
 .qc-stat-box.stat-done.active    { box-shadow: 0 0 0 2.5px #00897B; }
 .qc-stat-box.stat-skip.active    { box-shadow: 0 0 0 2.5px #C62828; }
 
+/* ── Lab filter ── */
+.qc-lab-filter-toggle {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  background: rgba(255,255,255,0.35);
+  border: 1.5px solid rgba(255,255,255,0.62);
+  border-radius: 12px; cursor: pointer; user-select: none;
+  font-size: 13px; font-weight: 700; color: rgba(30,80,90,0.85);
+  flex-shrink: 0;
+}
+.qc-lab-filter-toggle:hover { background: rgba(255,255,255,0.5); }
+.qc-lab-filter-toggle input { width: 15px; height: 15px; accent-color: #00897B; cursor: pointer; flex-shrink: 0; }
+.qc-lab-filter-active-check {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #2E7D32; color: #fff;
+  font-size: 12px; font-weight: 900; flex-shrink: 0;
+  margin-left: auto;
+}
+.qc-lab-filter-menu {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.45);
+  border: 1.5px solid rgba(255,255,255,0.65);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.qc-lab-filter-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; font-weight: 600; color: rgba(30,80,90,0.85);
+  cursor: pointer; user-select: none; padding: 3px 0;
+}
+.qc-lab-filter-item input { width: 14px; height: 14px; accent-color: #00897B; cursor: pointer; flex-shrink: 0; }
+.qc-lab-filter-item span:nth-child(2) { flex: 1; }
+.qc-lab-filter-cnt {
+  font-size: 11px; font-weight: 700; padding: 1px 7px;
+  background: rgba(0,137,123,0.14); color: #00695C; border-radius: 9px; flex-shrink: 0;
+}
+.qc-lab-filter-clear {
+  margin-top: 4px; padding: 6px; border: none; border-radius: 8px;
+  background: rgba(198,40,40,0.1); color: #C62828;
+  font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.qc-lab-filter-clear:hover { background: rgba(198,40,40,0.18); }
+
 /* Auto-call toggle */
 .qc-autocall-toggle {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -482,6 +527,13 @@
   box-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
 .qc-autocall-toggle.on .qc-autocall-thumb { transform: translateX(18px); }
+
+/* "อ่านคิว 2 รอบ" — orange when on, so it's not confused with the green confirm-before-call
+   toggle right above it (low contrast was hard to read against the pastel panel background) */
+.qc-repeat-toggle.on { border-color: #E65100; background: #FB8C00; }
+.qc-repeat-toggle.on .qc-autocall-left { color: #fff; }
+.qc-repeat-toggle.on .qc-autocall-left svg { color: #fff; }
+.qc-repeat-toggle.on .qc-autocall-track { background: #BF360C; }
 
 /* ── Right panel ── */
 .qc-panel-right {

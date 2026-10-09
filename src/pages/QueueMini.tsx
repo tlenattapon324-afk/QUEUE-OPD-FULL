@@ -45,6 +45,7 @@ export default function QueueMiniPage() {
   const [locked, setLocked] = useState(() => navigator.userAgent.includes('Electron') || window.location.hash.includes('electron=1'))
   const [listView, setListView] = useState<'' | 'waiting' | 'done' | 'skip'>('')
   const [confirmEnabled, setConfirmEnabled] = useState(() => localStorage.getItem('qc_confirm') === 'true')
+  const [repeatAnnounce, setRepeatAnnounce] = useState(() => localStorage.getItem('qc_repeat_announce') === 'true')
   const [pendingCall, setPendingCall] = useState<{ vn: string; queueNo: string } | null>(null)
   // true = running inside the actual native Electron Mini BrowserWindow.
   // Checked via the user agent (Electron's Chromium always includes "Electron/") rather than
@@ -300,7 +301,7 @@ export default function QueueMiniPage() {
     setCallingId(vn)
     try {
       const sp = servicePointFor(vn)
-      const res = await callQueue(vn, sp, mode, selectedDisplayId || undefined)
+      const res = await callQueue(vn, sp, mode, selectedDisplayId || undefined, repeatAnnounce)
       if (res.success) {
         lastCalledVnRef.current = vn
         const calledNo = res.queueNo || queueNo || vn
@@ -396,7 +397,7 @@ export default function QueueMiniPage() {
         }
         callVal = match.queue_slot || match.vn
       }
-      const res = await callQueue(callVal, currentSpName, mode, selectedDisplayId || undefined)
+      const res = await callQueue(callVal, currentSpName, mode, selectedDisplayId || undefined, repeatAnnounce)
       if (res.success) {
         setCurrentCalled({ queueNo: res.queueNo || val, servicePoint: currentSpName })
         setManualVal('')
@@ -594,6 +595,7 @@ export default function QueueMiniPage() {
               {manualLoading ? <span className="qm-spinner" /> : '📢'}
             </button>
           </form>
+          <div className="qm-toggle-row">
           <label className="qm-confirm-toggle">
             <div className={`qm-toggle-track${confirmEnabled ? ' on' : ''}`}>
               <input type="checkbox" checked={confirmEnabled} onChange={e => {
@@ -604,6 +606,17 @@ export default function QueueMiniPage() {
             </div>
             <span>ยืนยันก่อนเรียกคิว</span>
           </label>
+          <label className="qm-confirm-toggle">
+            <div className={`qm-toggle-track${repeatAnnounce ? ' on' : ''}`}>
+              <input type="checkbox" checked={repeatAnnounce} onChange={e => {
+                setRepeatAnnounce(e.target.checked)
+                localStorage.setItem('qc_repeat_announce', String(e.target.checked))
+              }} style={{ display: 'none' }} />
+              <div className="qm-toggle-thumb" />
+            </div>
+            <span>อ่านคิว 2 รอบ</span>
+          </label>
+          </div>
         </>
       )}
 

@@ -1454,7 +1454,7 @@ app.get('/api/queue/lab-xray', async (req, res) => {
 })
 
 app.post('/api/queue/call', async (req, res) => {
-  const { identifier, servicePoint, mode, displayConfigId } = req.body
+  const { identifier, servicePoint, mode, displayConfigId, repeat } = req.body
   const settings = loadSettings()
   if (!settings) return res.json({ success: false, message: 'ไม่มีการตั้งค่า' })
   try {
@@ -1514,11 +1514,15 @@ app.post('/api/queue/call', async (req, res) => {
         const isNetworkTtsVoice = EDGE_VOICES.some(v => v.name === voiceName) || GOOGLE_VOICES.some(v => v.name === voiceName) || !voiceName
         if (_hostAudioEnabled && !isNetworkTtsVoice) {
           generateSAPITTS(text, 'Microsoft Pattara', qdCfg.ttsRate ?? 1)
-            .then(audioUrl => playAudioOnHost(path.join(TTS_CACHE_DIR, path.basename(audioUrl))))
+            .then(audioUrl => {
+              const wav = path.join(TTS_CACHE_DIR, path.basename(audioUrl))
+              playAudioOnHost(wav)
+              if (repeat) playAudioOnHost(wav)
+            })
             .catch(() => {})
         }
         const doBroadcastAndPrewarm = (audioUrl) => {
-          broadcast({ type: 'queue:audio', data: { audioUrl, displayConfigId: displayConfigId || null, department, servicePoint: String(servicePoint), queueNo: displayNo } })
+          broadcast({ type: 'queue:audio', data: { audioUrl, displayConfigId: displayConfigId || null, department, servicePoint: String(servicePoint), queueNo: displayNo, repeat: !!repeat } })
           try {
             const isNetworkVoice = EDGE_VOICES.some(v => v.name === voiceName) || GOOGLE_VOICES.some(v => v.name === voiceName) || !voiceName
             const prewarmEdgeVoice = isNetworkVoice ? (voiceName || 'th-TH-AcharaNeural') : null

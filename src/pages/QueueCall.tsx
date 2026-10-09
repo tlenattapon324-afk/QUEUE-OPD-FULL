@@ -83,6 +83,7 @@ export default function QueueCallPage() {
   const callNextBtnRef = useRef<HTMLButtonElement>(null)
   const [manualTab, setManualTab] = useState<'search' | 'scan'>('search')
   const [confirmEnabled, setConfirmEnabled] = useState(() => localStorage.getItem('qc_confirm') === 'true')
+  const [repeatAnnounce, setRepeatAnnounce] = useState(() => localStorage.getItem('qc_repeat_announce') === 'true')
   const [pendingCall, setPendingCall] = useState<QueueRow | null>(null)
   const [showDisplayMenu, setShowDisplayMenu] = useState(false)
   const [showChannelMenu, setShowChannelMenu] = useState(false)
@@ -103,6 +104,8 @@ export default function QueueCallPage() {
   })
 
   const [labXrayMap, setLabXrayMap] = useState<Record<string, LabXrayStatus>>({})
+  const [showLabFilterMenu, setShowLabFilterMenu] = useState(false)
+  const [labFilterStatuses, setLabFilterStatuses] = useState<string[]>([])
   const lastCalledVnRef = useRef<string | null>(null)
   const currentSpNameRef = useRef<string>('')
   const prewarmCtxRef = useRef<{ spName: string; displayId: string }>({ spName: '', displayId: '' })
@@ -473,7 +476,7 @@ export default function QueueCallPage() {
       // Queue_Prefix: one VN can have multiple opd_qs_slot rows (one per doctor/service point) —
       // identifying by VN alone is ambiguous and could call a different doctor's slot than the
       // one on screen. queue_slot is unique per row, so prefer it whenever this row has one.
-      const res = await callQueue(queue.queue_slot || queue.vn, sp, mode, selectedDisplayId || undefined)
+      const res = await callQueue(queue.queue_slot || queue.vn, sp, mode, selectedDisplayId || undefined, repeatAnnounce)
       if (res.success) {
         lastCalledVnRef.current = queue.vn
         const calledNo = res.queueNo || queue.queue_no
@@ -543,7 +546,7 @@ export default function QueueCallPage() {
     const identifier = (callingRow ? (callingRow.queue_slot || callingRow.vn) : null) ?? lastCalledVnRef.current ?? String(currentCalled.queueNo)
     setCallingId('__recall__')
     try {
-      const res = await callQueue(identifier, currentSpName, mode, selectedDisplayId || undefined)
+      const res = await callQueue(identifier, currentSpName, mode, selectedDisplayId || undefined, repeatAnnounce)
       if (res.success) {
         const calledNo = res.queueNo ?? String(currentCalled.queueNo)
         const calledAt = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
@@ -624,7 +627,7 @@ export default function QueueCallPage() {
         }
         callVal = match.queue_slot || match.vn
       }
-      const res = await callQueue(callVal, currentSpName, mode, selectedDisplayId || undefined)
+      const res = await callQueue(callVal, currentSpName, mode, selectedDisplayId || undefined, repeatAnnounce)
       if (res.success) {
         const calledAt = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
         setCurrentCalled({ queueNo: res.queueNo || val, servicePoint: currentSpName, calledAt })
@@ -708,6 +711,23 @@ export default function QueueCallPage() {
     (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
   ).length
 
+  // Mirrors the LAB column badge's own precedence exactly, so "มีการสั่ง Lab" ticks the same
+  // rows the LAB column already visibly flags — ผลออก > รับแล้ว > สั่ง (any other truthy status).
+  const labStatusOf = (q: QueueRow): 'ordered' | 'received' | 'ready' | null => {
+    const lx = labXrayMap[q.vn]
+    if (!lx) return null
+    if (lx.confirm_report === 'Y') return 'ready'
+    if (lx.lab_receive === 'Y') return 'received'
+    return 'ordered'
+  }
+
+  const toggleLabStatus = (status: string) =>
+    setLabFilterStatuses(prev => prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status])
+
+  const labStatusCount = (status: string) => activeQueues.filter(q =>
+    labStatusOf(q) === status && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
+  ).length
+
   const queueKeyOf = (q: QueueRow) => (q.queue_slot ? `${q.vn}::${q.queue_slot}` : q.vn)
 
   const boardChannels = selectedDisplay?.channels || []
@@ -725,7 +745,8 @@ export default function QueueCallPage() {
       const matchVisit = visitFilter === 'all' || q.visit_type === visitFilter
       const matchDoctor = visitFilter !== 'appt' || selectedDoctors.length === 0 || (!!q.doctor_name && selectedDoctors.includes(q.doctor_name))
       const matchClinic = visitFilter !== 'appt' || selectedClinics.length === 0 || (!!q.clinic_name && selectedClinics.includes(q.clinic_name))
-      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard
+      const matchLab = labFilterStatuses.length === 0 || labFilterStatuses.includes(labStatusOf(q) || '')
+      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard && matchLab
     })
     .sort((a, b) => {
       // Queue_OPD / Queue_OPD_Room: sort oqueue (queue_no) numerically ascending
@@ -1176,6 +1197,25 @@ export default function QueueCallPage() {
             </div>
           </div>
 
+          <label className={`qc-autocall-toggle qc-repeat-toggle ${repeatAnnounce ? 'on' : ''}`}>
+            <div className="qc-autocall-left">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M3 12a9 9 0 0 1 15.5-6.3M21 12a9 9 0 0 1-15.5 6.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M18.5 3v3h-3M5.5 21v-3h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>อ่านคิว 2 รอบ</span>
+            </div>
+            <div className="qc-autocall-switch">
+              <input type="checkbox" checked={repeatAnnounce} onChange={e => {
+                setRepeatAnnounce(e.target.checked)
+                localStorage.setItem('qc_repeat_announce', String(e.target.checked))
+              }} />
+              <span className="qc-autocall-track">
+                <span className="qc-autocall-thumb" />
+              </span>
+            </div>
+          </label>
+
           <label className={`qc-autocall-toggle ${confirmEnabled ? 'on' : ''}`}>
             <div className="qc-autocall-left">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -1194,6 +1234,34 @@ export default function QueueCallPage() {
               </span>
             </div>
           </label>
+
+          <label className="qc-lab-filter-toggle">
+            <input type="checkbox" checked={showLabFilterMenu}
+              onChange={e => setShowLabFilterMenu(e.target.checked)} />
+            <span>🧪 กรองคิวที่มีการสั่ง Lab{labFilterStatuses.length > 0 ? ` (${labFilterStatuses.length})` : ''}</span>
+            {!showLabFilterMenu && labFilterStatuses.length > 0 && (
+              <span className="qc-lab-filter-active-check" title="มีตัวกรอง Lab ทำงานอยู่">✓</span>
+            )}
+          </label>
+          {showLabFilterMenu && (
+            <div className="qc-lab-filter-menu">
+              {([
+                ['ordered', 'สั่ง Lab แล้ว'],
+                ['received', 'ห้อง Lab รับแล้ว'],
+                ['ready', 'ผล Lab ออกแล้ว'],
+              ] as const).map(([val, label]) => (
+                <label key={val} className="qc-lab-filter-item">
+                  <input type="checkbox" checked={labFilterStatuses.includes(val)}
+                    onChange={() => toggleLabStatus(val)} />
+                  <span>{label}</span>
+                  <span className="qc-lab-filter-cnt">{labStatusCount(val)}</span>
+                </label>
+              ))}
+              {labFilterStatuses.length > 0 && (
+                <button className="qc-lab-filter-clear" onClick={() => setLabFilterStatuses([])}>ล้างตัวกรอง</button>
+              )}
+            </div>
+          )}
         </aside>
 
         {/* ─── Right Panel ─── */}

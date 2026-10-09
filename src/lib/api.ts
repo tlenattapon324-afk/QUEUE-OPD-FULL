@@ -38,7 +38,7 @@ let _ws: WebSocket | null = null
 const _wsListeners: Set<(data: { queueNo: string; servicePoint: string; audioUrl?: string | null; displayConfigId?: string | null }) => void> = new Set()
 const _configListeners: Set<(config: unknown) => void> = new Set()
 const _statusListeners: Set<(data: { vn: string; status: string; queueNo?: string; servicePoint?: string }) => void> = new Set()
-const _audioListeners: Set<(data: { audioUrl: string; displayConfigId?: string | null; servicePoint?: string; queueNo?: string }) => void> = new Set()
+const _audioListeners: Set<(data: { audioUrl: string; displayConfigId?: string | null; servicePoint?: string; queueNo?: string; repeat?: boolean }) => void> = new Set()
 const _clearListeners: Set<(data: { displayConfigId: string | null }) => void> = new Set()
 
 let _wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -152,10 +152,10 @@ export async function getAppointmentDoctors(): Promise<
 }
 
 export async function callQueue(
-  identifier: string, servicePoint: string, mode: 'slot' | 'opd' | 'cur_dep' | 'slot_cur' = 'slot', displayConfigId?: string
+  identifier: string, servicePoint: string, mode: 'slot' | 'opd' | 'cur_dep' | 'slot_cur' = 'slot', displayConfigId?: string, repeat?: boolean
 ): Promise<{ success: boolean; message?: string; queueNo?: string; queueSlot?: number }> {
   if (isElectron()) return window.electronAPI.callQueue(identifier, servicePoint)
-  return fetchJSON('/queue/call', { method: 'POST', body: JSON.stringify({ identifier, servicePoint, mode, displayConfigId }) })
+  return fetchJSON('/queue/call', { method: 'POST', body: JSON.stringify({ identifier, servicePoint, mode, displayConfigId, repeat: !!repeat }) })
 }
 
 export function prewarmTTS(
@@ -311,7 +311,7 @@ export function onDisplayConfig(cb: (config: unknown) => void): () => void {
 }
 
 export function onQueueAudio(
-  cb: (data: { audioUrl: string; displayConfigId?: string | null; servicePoint?: string; queueNo?: string }) => void
+  cb: (data: { audioUrl: string; displayConfigId?: string | null; servicePoint?: string; queueNo?: string; repeat?: boolean }) => void
 ): () => void {
   if (typeof window !== 'undefined') getWS()
   _audioListeners.add(cb)

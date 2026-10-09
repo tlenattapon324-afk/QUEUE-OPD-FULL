@@ -740,7 +740,16 @@ export default function QueueDisplayPage() {
         setLastCalled({ sp, queueNo, queueName, department, animKey: Date.now() })
         if (configRef.current.blinkEnabled) {
           clearTimeout(blinkTimers.current[sp])
-          setBlinkingSPs(prev => new Set([...prev, sp]))
+          // Force the CSS blink animation to restart from frame 0 even if this sp is already
+          // blinking (e.g. "อ่านคิว 2 รอบ", or a second call landing before the first blink
+          // finished) — re-adding to a Set that already has sp is a no-op React can see right
+          // through, so the animation just keeps running instead of restarting. Dropping it first
+          // and re-adding on the next frame removes the animation style and reapplies it, which
+          // is what actually makes the browser restart it.
+          setBlinkingSPs(prev => { const n = new Set(prev); n.delete(sp); return n })
+          requestAnimationFrame(() => {
+            setBlinkingSPs(prev => new Set([...prev, sp]))
+          })
           blinkTimers.current[sp] = setTimeout(() => {
             setBlinkingSPs(prev => { const n = new Set(prev); n.delete(sp); return n })
           }, configRef.current.blinkCount * configRef.current.blinkSpeed * 2 + 400)
@@ -789,7 +798,11 @@ export default function QueueDisplayPage() {
         if (pending) { pending.played = true; if (pending.fallbackTimer) clearTimeout(pending.fallbackTimer) }
       }
       // Enqueue audio + display update — drain applies display then plays audio in order
-      enqueueAudio(data.audioUrl, cfg.ttsVolume ?? 1, pending ? { sp: pending.sp, queueNo: pending.queueNo, queueName: pending.queueName, department: pending.department } : undefined)
+      const displayUpdate = pending ? { sp: pending.sp, queueNo: pending.queueNo, queueName: pending.queueName, department: pending.department } : undefined
+      enqueueAudio(data.audioUrl, cfg.ttsVolume ?? 1, displayUpdate)
+      // "อ่านคิว 2 รอบ" — queue the same clip again right after, replaying the same blink/row
+      // animation too so the second read looks and sounds identical to the first
+      if (data.repeat) enqueueAudio(data.audioUrl, cfg.ttsVolume ?? 1, displayUpdate)
     })
     return off
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
