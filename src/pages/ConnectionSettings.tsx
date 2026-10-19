@@ -21,6 +21,7 @@ export default function ConnectionSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [tableExists, setTableExists] = useState<boolean | null>(null)
   const [checkingTable, setCheckingTable] = useState(false)
   const [creatingTable, setCreatingTable] = useState(false)
@@ -34,6 +35,7 @@ export default function ConnectionSettingsPage() {
     setForm(f => ({ ...f, [key]: val }))
     setTestResult(null)
     setSaved(false)
+    setSaveError('')
     setTableExists(null)
     setTableResult(null)
   }
@@ -84,19 +86,33 @@ export default function ConnectionSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true)
-    await saveSettings(form)
-    syncTokenToThisTab()
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    setSaveError('')
+    try {
+      await saveSettings(form)
+      syncTokenToThisTab()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      // Without this, a failed request (e.g. server unreachable) left the button spinning
+      // forever — setSaving(false) below never ran because the throw skipped past it.
+      setSaveError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ กรุณาลองใหม่')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSaveAndLogin = async () => {
     setSaving(true)
-    await saveSettings(form)
-    syncTokenToThisTab()
-    setSaving(false)
-    navigate('/login')
+    setSaveError('')
+    try {
+      await saveSettings(form)
+      syncTokenToThisTab()
+      navigate('/login')
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ กรุณาลองใหม่')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -173,6 +189,7 @@ export default function ConnectionSettingsPage() {
             </div>
           )}
           {saved && <div className="alert alert-success animate-fade">✓ บันทึกการตั้งค่าเรียบร้อยแล้ว</div>}
+          {saveError && <div className="alert alert-error animate-fade">✗ {saveError}</div>}
 
           {testResult?.success && (
             <div className="table-check-section">

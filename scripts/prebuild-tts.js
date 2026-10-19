@@ -1,39 +1,82 @@
 'use strict'
 /**
- * Pre-generate Google TTS audio files for common Thai queue announcements.
- * Run during build — output goes to build/tts-cache/ which is bundled into the installer.
- * On installation, these files are copied to %APPDATA%\queue-opd\tts-cache\
- * so the app works with minimal delay on first use (no internet needed after install).
+ * Pre-generate TTS audio files matching THIS deployment's actual display configs
+ * (data/qd-config-*.json + qd-default-config.json), so the installer ships a cache
+ * that can actually be hit at runtime instead of a generic one that never matches.
+ * Output goes to build/tts-cache/ which is bundled into the installer.
  */
 
 const https = require('https')
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+if (!globalThis.crypto) globalThis.crypto = require('crypto').webcrypto // msedge-tts needs Web Crypto
+const { MsEdgeTTS, OUTPUT_FORMAT, ProsodyOptions } = require('msedge-tts')
 
+const DATA_DIR = path.join(__dirname, '..', 'data')
 const OUT_DIR = path.join(__dirname, '..', 'build', 'tts-cache')
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true })
 
-const VOICE = 'th-TH-Google'
-const RATE = 0.6
+// Mirrors server/index.js formatQueueNoForTTS exactly — must stay in sync.
+function formatQueueNoForTTS(queueNo) {
+  if (!queueNo) return queueNo
+  const s = String(queueNo)
+  const match = s.match(/^([A-Za-z\-]*)(\d+)$/)
+  if (!match) return s
+  const prefix = match[1].replace(/-/g, '')
+  const digits = match[2].split('').join(' ')
+  const spelled = prefix.split('').join(' ')
+  return [spelled, digits].filter(Boolean).join(' ')
+}
 
-// Common patterns used by most hospital OPD queues
-const PREFIXES = ['ขอเชิญคิว', 'ขอเชิญลำดับ', 'ขอเชิญหมายเลข']
-const MIDDLES = ['ที่ช่องบริการ', 'ที่โต๊ะซักประวัติหมายเลข', 'ที่ห้องตรวจ']
-const SUFFIX = 'ค่ะ'
-const CHANNELS = ['1', '2', '3', '4', '5', '6']
-const PREFIXES_MAIN = ['ขอเชิญคิว']
-const MIDDLES_MAIN = ['ที่ช่องบริการ']
+// Mirrors server/index.js's EDGE_VOICES/GOOGLE_VOICES lists — must stay in sync.
+const EDGE_VOICE_NAMES = new Set([
+  'th-TH-PremwadeeNeural', 'th-TH-AcharaNeural', 'th-TH-NiwatNeural',
+  'en-US-JennyNeural', 'en-US-AriaNeural', 'en-US-MichelleNeural', 'en-GB-SoniaNeural', 'en-US-GuyNeural'
+])
 
-// Generate queue numbers: GP-001..GP-200, A001..A200, 1..200
-const queueNumbers = []
-for (let i = 1; i <= 200; i++) {
-  queueNumbers.push(`GP-${String(i).padStart(3, '0')}`)
-  queueNumbers.push(String(i).padStart(3, '0'))
+// SAPI voices are host-local (no network call) — can't be pre-baked here; they warm up
+// at runtime via the existing SAPI generation path in server/index.js.
+function voiceKind(voiceName) {
+  if (/google/i.test(voiceName || '')) return 'google'
+  if (EDGE_VOICE_NAMES.has(voiceName)) return 'edge'
+  return 'sapi'
 }
 
 function cacheKey(voice, rate, text) {
   return crypto.createHash('md5').update(`${voice}_${String(rate)}_${text}`).digest('hex')
+}
+
+function loadQdConfigs() {
+  const files = fs.readdirSync(DATA_DIR).filter(f => /^qd-(config-.+|default-config)\.json$/.test(f))
+  const configs = []
+  for (const f of files) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf-8'))
+      if (cfg.ttsEnabled && cfg.ttsSource === 'server') configs.push(cfg)
+    } catch {}
+  }
+  return configs
+}
+
+// Real service-point / channel labels actually in use across configs, plus a safe fallback range.
+function channelsFor(cfg) {
+  const ch = Array.isArray(cfg.displayChannels) && cfg.displayChannels.length ? cfg.displayChannels : ['1', '2', '3', '4']
+  return [...new Set(ch.map(String))]
+}
+
+// Observed real queue-number prefixes in this deployment (DA/DC/NA/OA/GP) plus plain numeric slots.
+const QUEUE_PREFIXES = ['DA', 'DC', 'NA', 'OA', 'GP', '']
+const QUEUE_NUMBER_MAX = 30
+
+function buildQueueNumbers() {
+  const nums = []
+  for (const prefix of QUEUE_PREFIXES) {
+    for (let i = 1; i <= QUEUE_NUMBER_MAX; i++) {
+      nums.push(`${prefix}${String(i).padStart(3, '0')}`)
+    }
+  }
+  return nums
 }
 
 function fetchGoogleTTS(text, rate, destPath) {
@@ -65,39 +108,63 @@ function fetchGoogleTTS(text, rate, destPath) {
   })
 }
 
+async function fetchEdgeTTS(text, voiceName, rate, destPath) {
+  const tts = new MsEdgeTTS()
+  await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3)
+  const prosody = new ProsodyOptions()
+  prosody.rate = Number(rate)
+  const { audioStream } = tts.toStream(text, prosody)
+  await new Promise((resolve, reject) => {
+    const ws = fs.createWriteStream(destPath)
+    audioStream.pipe(ws)
+    ws.on('finish', resolve)
+    ws.on('error', reject)
+    audioStream.on('error', reject)
+  })
+}
+
 async function run() {
-  const texts = new Set()
-
-  // Main pattern: ขอเชิญคิว {Q} ที่ช่องบริการ {CH} ค่ะ — most common
-  for (const q of queueNumbers) {
-    for (const ch of CHANNELS) {
-      texts.add(`ขอเชิญคิว ${q} ที่ช่องบริการ ${ch} ${SUFFIX}`)
-    }
-  }
-  // Secondary patterns
-  for (const q of queueNumbers.slice(0, 50)) {
-    for (const ch of CHANNELS.slice(0, 4)) {
-      texts.add(`ขอเชิญลำดับ ${q} ที่โต๊ะซักประวัติหมายเลข ${ch} ${SUFFIX}`)
-      texts.add(`ขอเชิญหมายเลข ${q} ที่ช่องบริการ ${ch} ${SUFFIX}`)
-    }
+  const configs = loadQdConfigs()
+  if (configs.length === 0) {
+    console.warn('[prebuild-tts] No server-TTS display configs found in data/ — nothing to do.')
+    return
   }
 
-  const all = [...texts]
+  const queueNumbers = buildQueueNumbers()
+  const jobs = new Map() // cacheKey -> { kind, voice, rate, text }
+  let sapiConfigsSkipped = 0
+
+  for (const cfg of configs) {
+    const voice = cfg.ttsServerVoiceName || cfg.ttsVoiceName || ''
+    const kind = voiceKind(voice)
+    if (kind === 'sapi') { sapiConfigsSkipped++; continue } // host-local, warms up at runtime instead
+    const rate = cfg.ttsRate ?? 1
+    for (const q of queueNumbers) {
+      for (const ch of channelsFor(cfg)) {
+        const text = [cfg.ttsPrefix1, formatQueueNoForTTS(q), cfg.ttsMiddle, ch, cfg.ttsSuffix].filter(Boolean).join(' ')
+        const key = cacheKey(voice, rate, text)
+        if (!jobs.has(key)) jobs.set(key, { kind, voice, rate, text })
+      }
+    }
+  }
+
+  const all = [...jobs.values()]
   let done = 0, skipped = 0, errors = 0
-  console.log(`[prebuild-tts] Generating ${all.length} TTS files...`)
+  console.log(`[prebuild-tts] ${configs.length} server-TTS config(s) found (${sapiConfigsSkipped} SAPI skipped). Generating up to ${all.length} matching TTS files...`)
 
-  for (const text of all) {
-    const key = cacheKey(VOICE, RATE, text)
+  for (const { kind, voice, rate, text } of all) {
+    const key = cacheKey(voice, rate, text)
     const dest = path.join(OUT_DIR, `tts_${key}.mp3`)
     if (fs.existsSync(dest)) { skipped++; continue }
     try {
-      await fetchGoogleTTS(text, RATE, dest)
+      if (kind === 'google') await fetchGoogleTTS(text, rate, dest)
+      else await fetchEdgeTTS(text, voice, rate, dest)
       done++
       if (done % 50 === 0) console.log(`  [${done}/${all.length - skipped}] generated`)
-      await new Promise(r => setTimeout(r, 80)) // gentle rate limiting
+      await new Promise(r => setTimeout(r, kind === 'google' ? 80 : 150))
     } catch (e) {
       errors++
-      console.warn(`  WARN: ${text.slice(0, 40)} → ${e.message}`)
+      console.warn(`  WARN: ${text.slice(0, 40)} -> ${e.message}`)
     }
   }
   console.log(`[prebuild-tts] Done: ${done} new, ${skipped} cached, ${errors} errors`)

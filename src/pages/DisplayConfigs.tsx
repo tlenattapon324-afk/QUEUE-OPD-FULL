@@ -32,6 +32,7 @@ export default function DisplayConfigsPage() {
   const [form, setForm] = useState<Omit<DisplayConfigItem, 'id'>>(DEFAULT_FORM)
   const [fonts, setFonts] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
@@ -69,6 +70,7 @@ export default function DisplayConfigsPage() {
     setEditingId(null)
     setForm(DEFAULT_FORM)
     setShowModal(true)
+    setSaveError('')
     setFonts(await getSystemFonts())
   }
 
@@ -77,19 +79,28 @@ export default function DisplayConfigsPage() {
     setEditingId(id)
     setForm(rest)
     setShowModal(true)
+    setSaveError('')
     setFonts(await getSystemFonts())
   }
 
   const handleSave = async () => {
     setSaving(true)
-    if (editingId) {
-      await updateDisplayConfigItem(editingId, { id: editingId, ...form })
-    } else {
-      await createDisplayConfig(form)
+    setSaveError('')
+    try {
+      if (editingId) {
+        await updateDisplayConfigItem(editingId, { id: editingId, ...form })
+      } else {
+        await createDisplayConfig(form)
+      }
+      setShowModal(false)
+      load()
+    } catch (e) {
+      // Without this, a failed request (e.g. server unreachable) left the button spinning
+      // forever — setSaving(false) below never ran because the throw skipped past it.
+      setSaveError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ กรุณาลองใหม่')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    setShowModal(false)
-    load()
   }
 
   const handleDelete = async (id: string) => {
@@ -353,6 +364,8 @@ export default function DisplayConfigsPage() {
                 <span style={{ color: form.textColor, fontSize: 13, fontFamily: `'${form.font}', sans-serif` }}>{form.title}</span>
               </div>
             </div>
+
+            {saveError && <div className="alert alert-error animate-fade" style={{ margin: '0 20px' }}>✗ {saveError}</div>}
 
             <div className="dcfg-modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowModal(false)}>ยกเลิก</button>

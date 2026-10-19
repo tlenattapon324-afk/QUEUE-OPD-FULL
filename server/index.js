@@ -16,6 +16,20 @@ const mysql = require('mysql2/promise')
 const { Client: PgClient, Pool: PgPool } = require('pg')
 const md5 = require('md5')
 
+// Last line of defense against the whole server going down. Node's default behavior for an
+// uncaught exception, or an 'error' event emitted with no listener attached (the msedge-tts
+// library does this on its internal WebSocket when Microsoft's Edge TTS endpoint rejects a
+// connection, e.g. HTTP 403 from rate-limiting), is to crash the entire process — taking down
+// every connected display and the queue-call page with it, not just the one TTS request that
+// failed. This is a hospital queue system; one voice announcement failing must never mean the
+// whole thing goes dark until someone notices and restarts it by hand.
+process.on('uncaughtException', err => {
+  console.error('[FATAL-CAUGHT] uncaughtException (server kept running):', err)
+})
+process.on('unhandledRejection', err => {
+  console.error('[FATAL-CAUGHT] unhandledRejection (server kept running):', err)
+})
+
 const PORT = process.env.PORT || 3200
 const DATA_DIR = process.env.QUEUE_DATA_DIR || path.join(__dirname, '..', 'data')
 const SETTINGS_FILE = path.join(DATA_DIR, 'db-settings.json')
@@ -378,7 +392,11 @@ async function generateGoogleTTS(text, rate) {
   })()
 
   _googleTtsInProgress.set(cacheKey, promise)
-  promise.finally(() => _googleTtsInProgress.delete(cacheKey))
+  // .finally() returns a NEW promise that rejects if `promise` does — left unattached, that
+  // derived promise becomes its own independent unhandled rejection the moment `promise`
+  // rejects, even though `promise` itself (returned below) is properly handled by every
+  // caller. The .catch(() => {}) only silences THIS cleanup-only side chain, not `promise`.
+  promise.finally(() => _googleTtsInProgress.delete(cacheKey)).catch(() => {})
   return promise
 }
 
@@ -417,7 +435,10 @@ async function generateEdgeTTS(text, voiceName, rate) {
   })()
 
   _edgeTtsInProgress.set(cacheKey, promise)
-  promise.finally(() => _edgeTtsInProgress.delete(cacheKey))
+  // See the matching comment in generateGoogleTTS — this .catch(() => {}) is what was missing
+  // and is the actual cause of the server dying on an Edge TTS 403 (rate-limit) response: the
+  // orphaned .finally()-derived promise rejected with nothing attached to it anywhere.
+  promise.finally(() => _edgeTtsInProgress.delete(cacheKey)).catch(() => {})
   return promise
 }
 
@@ -456,46 +477,11 @@ function generateSAPITTS(text, voiceName, rate) {
     )
   })
   _sapiInProgress.set(cacheKey, promise)
-  promise.finally(() => _sapiInProgress.delete(cacheKey))
+  // See the matching comment in generateGoogleTTS.
+  promise.finally(() => _sapiInProgress.delete(cacheKey)).catch(() => {})
   return promise
 }
 
-// HOST audio — plays WAV files sequentially on the Windows machine via System.Media.SoundPlayer (offline, reliable)
-// Only enabled when Microsoft Pattara (Thai) voice is actually accessible via System.Speech on this machine.
-// If Pattara is not installed, HOST audio stays silent — prevents English fallback voice from playing.
-const _hostAudioQueue = []
-let _hostAudioBusy = false
-let _hostAudioEnabled = false
-
-exec(
-  `powershell -NoProfile -NonInteractive -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices() | Where-Object { $_.VoiceInfo.Name -eq 'Microsoft Pattara' } | Measure-Object | Select-Object -ExpandProperty Count"`,
-  { timeout: 8000 },
-  (err, stdout) => {
-    _hostAudioEnabled = !err && parseInt(stdout.trim()) > 0
-    console.log(`[HOST audio] Microsoft Pattara ${_hostAudioEnabled ? 'found — host playback enabled' : 'not found — host playback disabled'}`)
-  }
-)
-
-function drainHostAudio() {
-  if (_hostAudioQueue.length === 0) { _hostAudioBusy = false; return }
-  _hostAudioBusy = true
-  const wavFilePath = _hostAudioQueue.shift()
-  if (!fs.existsSync(wavFilePath)) { drainHostAudio(); return }
-  const escaped = wavFilePath.replace(/\\/g, '\\\\').replace(/'/g, "''")
-  const script = `(New-Object System.Media.SoundPlayer '${escaped}').PlaySync()`
-  const encoded = Buffer.from(script, 'utf16le').toString('base64')
-  console.log('[HOST audio] playing:', path.basename(wavFilePath))
-  exec(`powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`,
-    { timeout: 30000 },
-    () => drainHostAudio()
-  )
-}
-
-function playAudioOnHost(wavFilePath) {
-  if (!wavFilePath || !fs.existsSync(wavFilePath)) return
-  _hostAudioQueue.push(wavFilePath)
-  if (!_hostAudioBusy) drainHostAudio()
-}
 
 // Limit concurrent Edge TTS connections — Microsoft rate-limits after too many simultaneous WebSocket connections
 let _edgeTtsActive = 0
@@ -581,18 +567,11 @@ async function generateServerTTS(text, voiceName, rate) {
     if (fs.existsSync(path.join(TTS_CACHE_DIR, `tts_${edgeKey}.mp3`)))
       return `/tts-audio/tts_${edgeKey}.mp3`
 
-    // No Edge cache — start SAPI as parallel fallback ONLY when Pattara is confirmed installed.
-    // If Pattara is missing, SAPI falls through to Windows system-default voice (often English),
-    // which is worse than letting the browser's 4s fallback fire with the configured Thai voice.
-    const sapiPromise = _hostAudioEnabled
-      ? generateSAPITTS(text, 'Microsoft Pattara', rate).catch(() => null)
-      : null
-
     // Wait briefly for a concurrency slot instead of dropping the request outright — calling
     // two queues to different channels back-to-back (or a post-call prewarm still running)
     // can easily occupy both Edge slots; without this wait, a call landing at that exact
-    // moment used to throw immediately with no SAPI available (host audio off) and no
-    // edgePromise to retry from, so its announcement was silently lost.
+    // moment used to throw immediately with no edgePromise to retry from, so its
+    // announcement was silently lost.
     const waitStart = Date.now()
     while (_edgeTtsActive >= EDGE_TTS_MAX_CONCURRENT && Date.now() - waitStart < 6000) {
       await new Promise(r => setTimeout(r, 150))
@@ -608,18 +587,13 @@ async function generateServerTTS(text, voiceName, rate) {
         ])
       } catch (e) {
         // edgePromise still runs in background — caller can listen to it for late broadcast
-        console.warn('[TTS] Edge failed/timeout, using SAPI:', e.message)
+        console.warn('[TTS] Edge failed/timeout:', e.message)
         throw Object.assign(e, { edgePromise })
       } finally {
         _edgeTtsActive--
       }
     }
-    console.warn('[TTS] Edge still at capacity after waiting, using SAPI directly')
-    if (sapiPromise) {
-      const sapiUrl = await sapiPromise
-      if (sapiUrl) return sapiUrl
-    }
-    throw new Error('TTS generation failed: Edge unavailable, no valid SAPI fallback')
+    throw new Error('TTS generation failed: Edge unavailable (still at capacity after waiting)')
   }
   return generateSAPITTS(text, voiceName, rate)
 }
@@ -663,7 +637,7 @@ app.post('/api/tts/prewarm', (req, res) => {
         if (edgeVoice) {
           enqueuePrewarm(text, edgeVoice, qdCfg.ttsRate ?? 1, `client sp=${sp} q=${q.no}`)
         } else {
-          generateSAPITTS(text, 'Microsoft Pattara', qdCfg.ttsRate ?? 1).catch(() => {})
+          generateSAPITTS(text, voiceName, qdCfg.ttsRate ?? 1).catch(() => {})
         }
       }
     }
@@ -1509,18 +1483,6 @@ app.post('/api/queue/call', async (req, res) => {
           ? [qdCfg.ttsPrefix1, ttsName, qdCfg.ttsMiddle, String(servicePoint), qdCfg.ttsSuffix].filter(Boolean).join(' ')
           : [qdCfg.ttsPrefix1, formatQueueNoForTTS(displayNo), qdCfg.ttsMiddle, String(servicePoint), qdCfg.ttsSuffix].filter(Boolean).join(' ')
         const voiceName = qdCfg.ttsServerVoiceName || qdCfg.ttsVoiceName || ''
-        // HOST audio — only when Pattara installed AND configured voice is SAPI (not Google/Edge)
-        // Google/Edge TTS already broadcasts to display via WebSocket — playing Pattara on top creates double audio
-        const isNetworkTtsVoice = EDGE_VOICES.some(v => v.name === voiceName) || GOOGLE_VOICES.some(v => v.name === voiceName) || !voiceName
-        if (_hostAudioEnabled && !isNetworkTtsVoice) {
-          generateSAPITTS(text, 'Microsoft Pattara', qdCfg.ttsRate ?? 1)
-            .then(audioUrl => {
-              const wav = path.join(TTS_CACHE_DIR, path.basename(audioUrl))
-              playAudioOnHost(wav)
-              if (repeat) playAudioOnHost(wav)
-            })
-            .catch(() => {})
-        }
         const doBroadcastAndPrewarm = (audioUrl) => {
           broadcast({ type: 'queue:audio', data: { audioUrl, displayConfigId: displayConfigId || null, department, servicePoint: String(servicePoint), queueNo: displayNo, repeat: !!repeat } })
           try {
