@@ -55,11 +55,19 @@ interface QDConfig {
   rightPanelBg: string
   rightPanelHeaderBg: string
   rightPanelHeaderColor: string
+  rightPanelHeaderFontSize: number
   rightPanelLabel: string
   rightPanelQueueColor: string
   rightPanelWidth: number
   rightPanelFontSize: number
   rightPanelMaxItems: number
+  rightPanelEmptyText: string
+  rightPanelEmptyFontSize: number
+  rightPanelEmptyColor: string
+  // Auto-scroll only kicks in when the list actually overflows the visible panel height —
+  // when everything already fits, the list just stays put even with this enabled.
+  rightPanelAutoScroll: boolean
+  rightPanelScrollSpeed: number
   // Font / animation
   font: string
   fontSize: number
@@ -85,6 +93,9 @@ interface QDConfig {
   numColumns: number
   spColumns: Record<string, number>
   spRows: Record<string, number>
+  // Per-column color override — key is column number (1-based) as string; falls back to
+  // spColumnBg/spColumnColor/cbBg2 (or queueBg) when a column has no override set.
+  columnColors: Record<string, { spBg: string; spColor: string; queueBg: string }>
   // Display identity (set from URL ?id=)
   displayConfigId: string
   displayConfigName: string
@@ -147,11 +158,17 @@ const DEFAULT: QDConfig = {
   rightPanelBg: '#1a0000',
   rightPanelHeaderBg: '#7f0000',
   rightPanelHeaderColor: '#ffffff',
+  rightPanelHeaderFontSize: 19,
   rightPanelLabel: 'เรียกแล้วไม่มา',
   rightPanelQueueColor: '#ff6b6b',
   rightPanelWidth: 260,
   rightPanelFontSize: 8,
   rightPanelMaxItems: 10,
+  rightPanelEmptyText: 'ไม่มีรายการ',
+  rightPanelEmptyFontSize: 16,
+  rightPanelEmptyColor: '#555555',
+  rightPanelAutoScroll: false,
+  rightPanelScrollSpeed: 20,
   font: 'Sarabun',
   fontSize: 8,
   animationType: 'scale',
@@ -172,6 +189,7 @@ const DEFAULT: QDConfig = {
   numColumns: 1,
   spColumns: {},
   spRows: {},
+  columnColors: {},
   displayConfigId: '',
   displayConfigName: '',
   displayChannels: [],
@@ -213,6 +231,7 @@ function fixConfig(merged: Record<string, unknown>): QDConfig {
   if (typeof result.numColumns !== 'number' || result.numColumns < 1) result.numColumns = 1
   if (typeof result.spColumns !== 'object' || Array.isArray(result.spColumns)) result.spColumns = {}
   if (typeof result.spRows !== 'object' || Array.isArray(result.spRows)) result.spRows = {}
+  if (typeof result.columnColors !== 'object' || Array.isArray(result.columnColors)) result.columnColors = {}
   if (result.layout !== 'table' && result.layout !== 'callboard') result.layout = 'table'
   if (typeof result.upcomingCount !== 'number' || result.upcomingCount < 1) result.upcomingCount = DEFAULT.upcomingCount
   if (typeof result.cbFontSize1 !== 'number' || result.cbFontSize1 <= 0) result.cbFontSize1 = DEFAULT.cbFontSize1
@@ -1001,7 +1020,9 @@ export default function QueueDisplayPage() {
   const marqueeStyle = { animationDuration: `${config.footerScrollSpeed}s`, fontSize: config.footerFontSize }
   const border = `${config.borderWidth}px solid ${config.borderColor}`
 
-  const renderColumn = (sps: typeof visibleSPs, colIdx: number) => (
+  const renderColumn = (sps: typeof visibleSPs, colIdx: number) => {
+    const colColor = config.columnColors[String(colIdx + 1)]
+    return (
     <div key={colIdx} className="qd-main" style={{ position: 'relative', borderRight: border }}>
       {config.spColumnVisible && colIdx === 0 && (
         <div className="qd-col-resizer" style={{ left: config.spColumnWidth }} onMouseDown={startResize} title="ลากเพื่อปรับความกว้าง" />
@@ -1030,12 +1051,12 @@ export default function QueueDisplayPage() {
           return (
             <div key={sp.id} className="qd-row" style={{ borderBottom: border }}>
               {config.spColumnVisible && (
-                <div className="qd-td qd-td-sp" style={{ width: config.spColumnWidth, minWidth: config.spColumnWidth, background: config.spColumnBg, color: config.spColumnColor, fontSize: `${config.spFontSize}vw`, borderRight: border }}>
+                <div className="qd-td qd-td-sp" style={{ width: config.spColumnWidth, minWidth: config.spColumnWidth, background: colColor?.spBg || config.spColumnBg, color: colColor?.spColor || config.spColumnColor, fontSize: `${config.spFontSize}vw`, borderRight: border }}>
                   {displayName}
                 </div>
               )}
               <div key={`q-${rowKey}`} className="qd-td qd-td-queue" style={{
-                background: config.queueBg,
+                background: colColor?.queueBg || config.queueBg,
                 ...(isBlinking && config.blinkTarget !== 'text' ? {
                   animation: `qd-blink-anim ${config.blinkSpeed}ms step-end ${config.blinkCount}`,
                   '--qd-blink-color': config.blinkColor,
@@ -1063,7 +1084,7 @@ export default function QueueDisplayPage() {
         })}
       </div>
     </div>
-  )
+  )}
 
   // ─── Callboard layout: big "currently called" block + per-channel rows + upcoming preview ───
   // ส่วนที่ 1/2 มีขนาดตัวอักษรแยกกัน (cbFontSize1/cbFontSize2) และทุกส่วนเว้นช่องไฟระหว่างกัน
@@ -1137,7 +1158,9 @@ export default function QueueDisplayPage() {
               <div className="qd-col-resizer" style={{ left: config.spColumnWidth }} onMouseDown={startResize} title="ลากเพื่อปรับความกว้าง" />
               <div className="qd-empty">{servicePoints.length === 0 ? 'กำลังโหลด...' : '—'}</div>
             </div>
-          ) : columnGroups.map((sps, colIdx) => (
+          ) : columnGroups.map((sps, colIdx) => {
+            const colColor = config.columnColors[String(colIdx + 1)]
+            return (
             <div className="qd-cb2-col" key={colIdx} style={{ position: 'relative' }}>
               {colIdx === 0 && (
                 <div className="qd-col-resizer" style={{ left: config.spColumnWidth }} onMouseDown={startResize} title="ลากเพื่อปรับความกว้าง" />
@@ -1162,13 +1185,13 @@ export default function QueueDisplayPage() {
                     <div key={sp.id} className="qd-cb2-row">
                       <div className="qd-cb2-sp-box" style={{
                         width: config.spColumnWidth, minWidth: config.spColumnWidth,
-                        background: config.spColumnBg, color: config.spColumnColor,
+                        background: colColor?.spBg || config.spColumnBg, color: colColor?.spColor || config.spColumnColor,
                         border: boxBorder, fontSize: `${config.cbSpFontSize2}vw`,
                       }}>
                         {displayName}
                       </div>
                       <div key={`qbox-${rowKey}`} className="qd-cb2-queue-box" style={{
-                        background: config.cbBg2,
+                        background: colColor?.queueBg || config.cbBg2,
                         border: boxBorder,
                         ...(chIsBlinking && config.blinkTarget !== 'text' ? {
                           animation: `qd-blink-anim-cb2 ${config.blinkSpeed}ms step-end ${config.blinkCount}`,
@@ -1184,7 +1207,7 @@ export default function QueueDisplayPage() {
                 })}
               </div>
             </div>
-          ))}
+          )})}
         </div>
       </div>
     )
@@ -1270,7 +1293,7 @@ export default function QueueDisplayPage() {
           className="qd-right"
           style={{ background: config.rightPanelBg, width: config.rightPanelWidth, minWidth: config.rightPanelWidth }}
         >
-          <div className="qd-right-hd" style={{ background: config.rightPanelHeaderBg, color: config.rightPanelHeaderColor }}>
+          <div className="qd-right-hd" style={{ background: config.rightPanelHeaderBg, color: config.rightPanelHeaderColor, fontSize: config.rightPanelHeaderFontSize }}>
             {config.rightPanelLabel}
             {filteredNoShow.length > 0 && (
               <span className="qd-right-count">{filteredNoShow.length}</span>
@@ -1278,28 +1301,43 @@ export default function QueueDisplayPage() {
           </div>
           <div className="qd-right-body">
             {filteredNoShow.length === 0 ? (
-              <span className="qd-right-empty">ไม่มีรายการ</span>
-            ) : (
-              <div className="qd-noshow-list">
-                {[...filteredNoShow].sort((a, b) => (b.calledAt || '').localeCompare(a.calledAt || '')).slice(0, config.rightPanelMaxItems).map((item) => {
-                  const badge = extractBadge(item.queueNo)
-                  return (
-                    <div key={item.vn} className="qd-noshow-item"
-                      style={{ height: config.noShowItemHeight, minHeight: config.noShowItemHeight }}>
-                      <div className="qd-noshow-queue">
-                        {badge && <span className="qd-right-badge">{badge}</span>}
-                        <span className="qd-noshow-no" style={{ color: config.rightPanelQueueColor, fontSize: `${config.rightPanelFontSize}vw` }}>
-                          {item.queueNo}
-                        </span>
-                      </div>
-                      <div className="qd-noshow-sp">
-                        {item.servicePoint} · {item.calledAt}
-                      </div>
+              <span className="qd-right-empty" style={{ fontSize: config.rightPanelEmptyFontSize, color: config.rightPanelEmptyColor }}>{config.rightPanelEmptyText}</span>
+            ) : (() => {
+              const sorted = [...filteredNoShow].sort((a, b) => (b.calledAt || '').localeCompare(a.calledAt || ''))
+              const renderItem = (item: CallEntry) => {
+                const badge = extractBadge(item.queueNo)
+                return (
+                  <div key={item.vn} className="qd-noshow-item"
+                    style={{ height: config.noShowItemHeight, minHeight: config.noShowItemHeight }}>
+                    <div className="qd-noshow-queue">
+                      {badge && <span className="qd-right-badge">{badge}</span>}
+                      <span className="qd-noshow-no" style={{ color: config.rightPanelQueueColor, fontSize: `${config.rightPanelFontSize}vw` }}>
+                        {item.queueNo}
+                      </span>
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                    <div className="qd-noshow-sp">
+                      {item.servicePoint} · {item.calledAt}
+                    </div>
+                  </div>
+                )
+              }
+              // "จำนวนแสดงสูงสุด" is the window size (how many the screen is sized to hold at
+              // once). Scrolling kicks in exactly when there are more no-show entries than that —
+              // never when everything already fits within the configured window.
+              const shouldScroll = config.rightPanelAutoScroll && sorted.length > config.rightPanelMaxItems
+              if (!shouldScroll) {
+                return <div className="qd-noshow-list">{sorted.slice(0, config.rightPanelMaxItems).map(renderItem)}</div>
+              }
+              // Seamless vertical loop: render the full list twice back-to-back and animate
+              // translateY from 0 to -50% (the point where copy #2 lines up with where copy #1
+              // started), so the loop restart is invisible.
+              return (
+                <div className="qd-noshow-scroll-track" style={{ animationDuration: `${config.rightPanelScrollSpeed}s` }}>
+                  <div className="qd-noshow-list">{sorted.map(renderItem)}</div>
+                  <div className="qd-noshow-list" aria-hidden="true">{sorted.map(item => renderItem({ ...item, vn: `${item.vn}-dup` }))}</div>
+                </div>
+              )
+            })()}
           </div>
         </div>}
       </div>
@@ -1598,6 +1636,36 @@ export default function QueueDisplayPage() {
                 })
               )}
 
+              {/* ── สีแยกตามคอลัมน์ ── */}
+              {config.numColumns > 1 && (
+                <>
+                  <SSec>สีแยกตามคอลัมน์ (ไม่ตั้งค่า = ใช้สีค่าเริ่มต้นด้านบน)</SSec>
+                  {Array.from({ length: config.numColumns }, (_, i) => {
+                    const colKey = String(i + 1)
+                    const cc = config.columnColors[colKey] || { spBg: '', spColor: '', queueBg: '' }
+                    const setCC = (patch: Partial<{ spBg: string; spColor: string; queueBg: string }>) =>
+                      setConfig(c => {
+                        const existing = c.columnColors[colKey] || { spBg: '', spColor: '', queueBg: '' }
+                        return { ...c, columnColors: { ...c.columnColors, [colKey]: { ...existing, ...patch } } }
+                      })
+                    return (
+                      <div key={colKey} className="qd-colcolor-group">
+                        <div className="qd-colcolor-label">คอลัมน์ {colKey}</div>
+                        <SRow label="สีพื้นช่องบริการ">
+                          <CInput value={cc.spBg || config.spColumnBg} onChange={v => setCC({ spBg: v })} />
+                        </SRow>
+                        <SRow label="สีตัวอักษรช่องบริการ">
+                          <CInput value={cc.spColor || config.spColumnColor} onChange={v => setCC({ spColor: v })} />
+                        </SRow>
+                        <SRow label="สีพื้นกล่องแสดงคิว">
+                          <CInput value={cc.queueBg || (config.layout === 'callboard' ? config.cbBg2 : config.queueBg)} onChange={v => setCC({ queueBg: v })} />
+                        </SRow>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+
               {/* ── แผงขวา ── */}
               <SSec>แผงเรียกแล้วไม่มา (ด้านขวา)</SSec>
               <SRow label="ป้ายกำกับ">
@@ -1614,11 +1682,21 @@ export default function QueueDisplayPage() {
                   onChange={e => setConfig(c => ({ ...c, rightPanelFontSize: Number(e.target.value) }))}
                   className="qd-slider" />
               </SRow>
-              <SRow label={`จำนวนแสดงสูงสุด: ${config.rightPanelMaxItems} รายการ`}>
+              <SRow label={`จำนวนแสดงสูงสุด: ${config.rightPanelMaxItems} รายการ${config.rightPanelAutoScroll ? ' (เกินนี้จะเลื่อนวน)' : ''}`}>
                 <input type="range" min="1" max="20" step="1" value={config.rightPanelMaxItems}
                   onChange={e => setConfig(c => ({ ...c, rightPanelMaxItems: Number(e.target.value) }))}
                   className="qd-slider" />
               </SRow>
+              <SRow label="เลื่อนวนอัตโนมัติเมื่อรายการล้นจอ">
+                <Tog checked={config.rightPanelAutoScroll} onChange={v => setConfig(c => ({ ...c, rightPanelAutoScroll: v }))} />
+              </SRow>
+              {config.rightPanelAutoScroll && (
+                <SRow label={`ความเร็วเลื่อน: ${config.rightPanelScrollSpeed}s/รอบ`}>
+                  <input type="range" min="5" max="120" step="5" value={config.rightPanelScrollSpeed}
+                    onChange={e => setConfig(c => ({ ...c, rightPanelScrollSpeed: Number(e.target.value) }))}
+                    className="qd-slider" />
+                </SRow>
+              )}
               <SRow label={`ความสูงต่อรายการ: ${config.noShowItemHeight}px`}>
                 <input type="range" min="40" max="200" step="4" value={config.noShowItemHeight}
                   onChange={e => setConfig(c => ({ ...c, noShowItemHeight: Number(e.target.value) }))}
@@ -1633,8 +1711,25 @@ export default function QueueDisplayPage() {
               <SRow label="สีข้อความหัว">
                 <CInput value={config.rightPanelHeaderColor} onChange={v => setConfig(c => ({ ...c, rightPanelHeaderColor: v }))} />
               </SRow>
+              <SRow label={`ขนาดตัวอักษรหัว: ${config.rightPanelHeaderFontSize}px`}>
+                <input type="range" min="10" max="48" step="1" value={config.rightPanelHeaderFontSize}
+                  onChange={e => setConfig(c => ({ ...c, rightPanelHeaderFontSize: Number(e.target.value) }))}
+                  className="qd-slider" />
+              </SRow>
               <SRow label="สีตัวเลขคิว">
                 <CInput value={config.rightPanelQueueColor} onChange={v => setConfig(c => ({ ...c, rightPanelQueueColor: v }))} />
+              </SRow>
+              <SRow label="ข้อความเมื่อไม่มีรายการ">
+                <input className="input" value={config.rightPanelEmptyText}
+                  onChange={e => setConfig(c => ({ ...c, rightPanelEmptyText: e.target.value }))} />
+              </SRow>
+              <SRow label={`ขนาดตัวอักษร (ไม่มีรายการ): ${config.rightPanelEmptyFontSize}px`}>
+                <input type="range" min="10" max="48" step="1" value={config.rightPanelEmptyFontSize}
+                  onChange={e => setConfig(c => ({ ...c, rightPanelEmptyFontSize: Number(e.target.value) }))}
+                  className="qd-slider" />
+              </SRow>
+              <SRow label="สีตัวอักษร (ไม่มีรายการ)">
+                <CInput value={config.rightPanelEmptyColor} onChange={v => setConfig(c => ({ ...c, rightPanelEmptyColor: v }))} />
               </SRow>
 
               {/* ── ฟ้อนต์/แอนิเมชัน ── */}

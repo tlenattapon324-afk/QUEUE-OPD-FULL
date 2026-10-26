@@ -610,6 +610,17 @@
   100% { transform: translateX(-100%); }
 }
 
+/* Vertical auto-scroll for the no-show list when it overflows the panel — the list is
+   rendered twice back-to-back and this animates exactly one copy's worth of height, so the
+   loop restart is seamless. */
+.qd-noshow-scroll-track {
+  animation: qd-noshow-scroll linear infinite;
+}
+@keyframes qd-noshow-scroll {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
 /* ─── Settings overlay ─────────────────────────────────────────── */
 .qd-overlay {
   position: fixed;
@@ -755,6 +766,18 @@
 }
 .qd-col-count-btn:hover { border-color: #00BCD4; color: #00BCD4; }
 .qd-col-count-btn.active { background: rgba(0,188,212,0.2); border-color: #00BCD4; color: #00BCD4; }
+.qd-colcolor-group {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: rgba(255,255,255,0.03);
+}
+.qd-colcolor-label {
+  font-size: 12px; font-weight: 800;
+  color: #00BCD4; margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
 .qd-panel-ft {
   padding: 14px 20px;
   border-top: 1px solid rgba(255,255,255,0.1);

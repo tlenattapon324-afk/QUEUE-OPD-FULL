@@ -87,6 +87,22 @@ export default function QueueCallPage() {
   // แสดง/ซ่อนกลุ่มปุ่มเลือกโหมดเรียกคิว — default เปิดทั้งคู่ไว้ตามพฤติกรรมเดิม
   const [showPrefixGroup, setShowPrefixGroup] = useState(() => localStorage.getItem('qc_show_prefix_group') !== 'false')
   const [showOpdGroup, setShowOpdGroup] = useState(() => localStorage.getItem('qc_show_opd_group') !== 'false')
+  // แสดง/ซ่อนคอลัมน์ตาราง — บางจุดบริการไม่จำเป็นต้องเห็นทุกคอลัมน์ ค่าเริ่มต้นเปิดหมดตามพฤติกรรมเดิม
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
+    const defaults: Record<string, boolean> = {
+      date: true, lab: true, xray: true, med: true, supply: true, hn: true,
+      name: true, insurance: true, department: true, visitType: true, status: true, calledTime: true,
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem('qc_visible_columns') || '{}')
+      return { ...defaults, ...saved }
+    } catch { return defaults }
+  })
+  const toggleColumn = (key: string) => setVisibleColumns(prev => {
+    const next = { ...prev, [key]: !prev[key] }
+    localStorage.setItem('qc_visible_columns', JSON.stringify(next))
+    return next
+  })
   const [pendingCall, setPendingCall] = useState<QueueRow | null>(null)
   const [showDisplayMenu, setShowDisplayMenu] = useState(false)
   const [showChannelMenu, setShowChannelMenu] = useState(false)
@@ -109,6 +125,8 @@ export default function QueueCallPage() {
   const [labXrayMap, setLabXrayMap] = useState<Record<string, LabXrayStatus>>({})
   const [showLabFilterMenu, setShowLabFilterMenu] = useState(false)
   const [labFilterStatuses, setLabFilterStatuses] = useState<string[]>([])
+  const [medFilterEnabled, setMedFilterEnabled] = useState(false)
+  const [supplyFilterEnabled, setSupplyFilterEnabled] = useState(false)
   const lastCalledVnRef = useRef<string | null>(null)
   const currentSpNameRef = useRef<string>('')
   const prewarmCtxRef = useRef<{ spName: string; displayId: string }>({ spName: '', displayId: '' })
@@ -731,6 +749,14 @@ export default function QueueCallPage() {
     labStatusOf(q) === status && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
   ).length
 
+  const medOrderCount = activeQueues.filter(q =>
+    (labXrayMap[q.vn]?.med_count || 0) > 0 && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
+  ).length
+
+  const supplyOrderCount = activeQueues.filter(q =>
+    (labXrayMap[q.vn]?.supply_count || 0) > 0 && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
+  ).length
+
   const queueKeyOf = (q: QueueRow) => (q.queue_slot ? `${q.vn}::${q.queue_slot}` : q.vn)
 
   const boardChannels = selectedDisplay?.channels || []
@@ -749,7 +775,9 @@ export default function QueueCallPage() {
       const matchDoctor = visitFilter !== 'appt' || selectedDoctors.length === 0 || (!!q.doctor_name && selectedDoctors.includes(q.doctor_name))
       const matchClinic = visitFilter !== 'appt' || selectedClinics.length === 0 || (!!q.clinic_name && selectedClinics.includes(q.clinic_name))
       const matchLab = labFilterStatuses.length === 0 || labFilterStatuses.includes(labStatusOf(q) || '')
-      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard && matchLab
+      const matchMed = !medFilterEnabled || (labXrayMap[q.vn]?.med_count || 0) > 0
+      const matchSupply = !supplyFilterEnabled || (labXrayMap[q.vn]?.supply_count || 0) > 0
+      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard && matchLab && matchMed && matchSupply
     })
     .sort((a, b) => {
       // Queue_OPD_Room / Queue_Prefix_Room: sort by the doctor's actual sign-in time
@@ -1146,6 +1174,27 @@ export default function QueueCallPage() {
                     }} />
                   QN ทั่วไป / QN ห้องตรวจ
                 </label>
+                <div className="qc-sd-divider" />
+                <div className="qc-sd-section-label">แสดงคอลัมน์ตาราง</div>
+                {([
+                  ['date', 'วันที่'],
+                  ['lab', 'Lab'],
+                  ['xray', 'X-ray'],
+                  ['med', 'ยา'],
+                  ['supply', 'เวชภัณฑ์'],
+                  ['hn', 'HN'],
+                  ['name', 'ชื่อ'],
+                  ['insurance', 'สิทธิการรักษา'],
+                  ['department', 'แผนก'],
+                  ['visitType', 'ประเภท'],
+                  ['status', 'สถานะ'],
+                  ['calledTime', 'เวลาเรียก'],
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="qc-sd-checkbox">
+                    <input type="checkbox" checked={visibleColumns[key]} onChange={() => toggleColumn(key)} />
+                    {label}
+                  </label>
+                ))}
               </div>
             )}
           </div>
@@ -1300,6 +1349,24 @@ export default function QueueCallPage() {
               )}
             </div>
           )}
+
+          <label className="qc-lab-filter-toggle">
+            <input type="checkbox" checked={medFilterEnabled}
+              onChange={e => setMedFilterEnabled(e.target.checked)} />
+            <span>💊 กรองคิวที่มีรายการยา{medOrderCount > 0 ? ` (${medOrderCount})` : ''}</span>
+            {medFilterEnabled && (
+              <span className="qc-lab-filter-active-check" title="กำลังกรองคิวที่มีรายการยา">✓</span>
+            )}
+          </label>
+
+          <label className="qc-lab-filter-toggle">
+            <input type="checkbox" checked={supplyFilterEnabled}
+              onChange={e => setSupplyFilterEnabled(e.target.checked)} />
+            <span>🩹 กรองคิวที่มีรายการเวชภัณฑ์{supplyOrderCount > 0 ? ` (${supplyOrderCount})` : ''}</span>
+            {supplyFilterEnabled && (
+              <span className="qc-lab-filter-active-check" title="กำลังกรองคิวที่มีรายการเวชภัณฑ์">✓</span>
+            )}
+          </label>
         </aside>
 
         {/* ─── Right Panel ─── */}
@@ -1610,14 +1677,20 @@ export default function QueueCallPage() {
                       onChange={e => setSelectionForRows(filteredQueues, e.target.checked)}
                       title="เลือกทั้งหมดที่แสดงอยู่" />
                   </th>
-                  <th>วันที่</th>
-                  <th className="qc-th-lab">Lab</th>
-                  <th className="qc-th-lab">X-ray</th>
+                  {visibleColumns.date && <th>วันที่</th>}
+                  {visibleColumns.lab && <th className="qc-th-lab">Lab</th>}
+                  {visibleColumns.xray && <th className="qc-th-lab">X-ray</th>}
+                  {visibleColumns.med && <th className="qc-th-lab">ยา</th>}
+                  {visibleColumns.supply && <th className="qc-th-lab">เวชภัณฑ์</th>}
                   {(mode === 'slot' || mode === 'slot_cur') && <th>Queue Dep</th>}
                   <th>{(mode === 'slot' || mode === 'slot_cur') ? 'oqueue' : 'คิว'}</th>
-                  <th>HN</th>
-                  <th>ชื่อ</th><th>สิทธิการรักษา</th><th>แผนก</th>
-                  <th>ประเภท</th><th>สถานะ</th><th>เวลาเรียก</th>
+                  {visibleColumns.hn && <th>HN</th>}
+                  {visibleColumns.name && <th>ชื่อ</th>}
+                  {visibleColumns.insurance && <th>สิทธิการรักษา</th>}
+                  {visibleColumns.department && <th>แผนก</th>}
+                  {visibleColumns.visitType && <th>ประเภท</th>}
+                  {visibleColumns.status && <th>สถานะ</th>}
+                  {visibleColumns.calledTime && <th>เวลาเรียก</th>}
                   <th>
                     <div className="qc-th-action">
                       จัดการ
@@ -1656,11 +1729,11 @@ export default function QueueCallPage() {
                           <span className="qc-stage-tag" title="อยู่ในบอร์ดเตรียมคิว">{channelByKey.get(queueKeyOf(q))}</span>
                         )}
                       </td>
-                      <td className="qc-td-date">
+                      {visibleColumns.date && <td className="qc-td-date">
                         <div>{q.vstdate ? String(q.vstdate).substring(0, 10) : '—'}</div>
                         {q.vsttime && <div className="qc-td-time">{String(q.vsttime).substring(0, 5)}</div>}
-                      </td>
-                      <td className="qc-td-lab">
+                      </td>}
+                      {visibleColumns.lab && <td className="qc-td-lab">
                         {(() => { const lx = labXrayMap[q.vn]
                           if (!lx) return null
                           const { confirm_report, lab_receive } = lx
@@ -1683,8 +1756,8 @@ export default function QueueCallPage() {
                             </span>
                           )
                         })()}
-                      </td>
-                      <td className="qc-td-lab">
+                      </td>}
+                      {visibleColumns.xray && <td className="qc-td-lab">
                         {(() => { const lx = labXrayMap[q.vn]
                           if (!lx) return null
                           const { xray_confirm, xray_confirm_radiology } = lx
@@ -1708,18 +1781,40 @@ export default function QueueCallPage() {
                             </span>
                           )
                         })()}
-                      </td>
+                      </td>}
+                      {visibleColumns.med && <td className="qc-td-lab">
+                        {(() => { const medCount = labXrayMap[q.vn]?.med_count || 0
+                          if (medCount === 0) return null
+                          return (
+                            <span className="lab-icon med-icon-ordered" title={`มีรายการยา ${medCount} รายการ`}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="8" width="17" height="8" rx="4" transform="rotate(-45 12 12)" stroke="currentColor" strokeWidth="1.8"/><line x1="9.5" y1="14.5" x2="14.5" y2="9.5" stroke="currentColor" strokeWidth="1.8"/></svg>
+                              <span className="lab-icon-label">{medCount} รายการ</span>
+                            </span>
+                          )
+                        })()}
+                      </td>}
+                      {visibleColumns.supply && <td className="qc-td-lab">
+                        {(() => { const supplyCount = labXrayMap[q.vn]?.supply_count || 0
+                          if (supplyCount === 0) return null
+                          return (
+                            <span className="lab-icon supply-icon-ordered" title={`มีรายการเวชภัณฑ์ ${supplyCount} รายการ`}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="7" width="18" height="13" rx="2" stroke="currentColor" strokeWidth="1.8"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" strokeWidth="1.8"/><line x1="12" y1="11" x2="12" y2="16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="9.5" y1="13.5" x2="14.5" y2="13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                              <span className="lab-icon-label">{supplyCount} รายการ</span>
+                            </span>
+                          )
+                        })()}
+                      </td>}
                       {(mode === 'slot' || mode === 'slot_cur') && <td className="qc-td-center"><span className="qc-slot-pill">{q.queue_slot ?? '—'}</span></td>}
                       <td className="qc-td-center"><span className="qc-qno-pill">{q.queue_no || '—'}</span></td>
-                      <td className="qc-td-hn"><span>{q.hn || '—'}</span></td>
-                      <td className="qc-td-name">
+                      {visibleColumns.hn && <td className="qc-td-hn"><span>{q.hn || '—'}</span></td>}
+                      {visibleColumns.name && <td className="qc-td-name">
                         {q.queue_name || '—'}
                         {q.visit_type === 'appt' && q.doctor_name && (
                           <div className="qc-name-doctor">แพทย์ : {q.doctor_name}</div>
                         )}
-                      </td>
-                      <td className="qc-td-ins">{q.insurance || '—'}</td>
-                      <td className="qc-td-dep">
+                      </td>}
+                      {visibleColumns.insurance && <td className="qc-td-ins">{q.insurance || '—'}</td>}
+                      {visibleColumns.department && <td className="qc-td-dep">
                         {q.department || '—'}
                         {q.clinic_name && (
                           <div className="qc-clinic-name"><span className="qc-clinic-label">คลินิก : </span>{q.clinic_name}</div>
@@ -1727,21 +1822,21 @@ export default function QueueCallPage() {
                         {(mode === 'cur_dep' || mode === 'slot_cur') && q.sign_time && (
                           <div className="qc-td-time qc-td-signtime" title="เวลาที่แพทย์ sign">⏱ {q.sign_time}</div>
                         )}
-                      </td>
-                      <td className="qc-td-center">
+                      </td>}
+                      {visibleColumns.visitType && <td className="qc-td-center">
                         <span className={`qc-visit-badge ${q.ist_name?.includes('นัด') ? 'vb-appt' : 'vb-walk'}`}>
                           {q.ist_name || '—'}
                         </span>
                         {q.ost_name && (
                           <div className="qc-ost-label">ส่งต่อ : {q.ost_name}</div>
                         )}
-                      </td>
-                      <td className="qc-td-center">
+                      </td>}
+                      {visibleColumns.status && <td className="qc-td-center">
                         <span className={`qc-badge ${statusClass[q.status] || 'badge-waiting'}`}>
                           {statusLabel[q.status] || q.status}
                         </span>
-                      </td>
-                      <td className="qc-td-calltime">{callTimeMap[q.queue_slot ? `${q.vn}::${q.queue_slot}` : q.vn] || '—'}</td>
+                      </td>}
+                      {visibleColumns.calledTime && <td className="qc-td-calltime">{callTimeMap[q.queue_slot ? `${q.vn}::${q.queue_slot}` : q.vn] || '—'}</td>}
                       <td className="qc-td-action">
                         {q.status === 'waiting' && (
                           <button className="btn btn-primary qc-call-btn" onClick={() => handleCall(q)} disabled={!!callingId}>

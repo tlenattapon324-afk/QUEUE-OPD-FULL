@@ -1340,7 +1340,9 @@ SELECT ov.vn,
     (SELECT MAX(lab_receive) FROM lab_head WHERE vn = ov.vn) AS lab_receive,
     (SELECT MAX(confirm_report) FROM lab_head WHERE vn = ov.vn) AS confirm_report,
     (SELECT MAX(confirm) FROM xray_report WHERE vn = ov.vn) AS xray_confirm,
-    (SELECT MAX(confirm_radiology) FROM xray_report WHERE vn = ov.vn) AS xray_confirm_radiology
+    (SELECT MAX(confirm_radiology) FROM xray_report WHERE vn = ov.vn) AS xray_confirm_radiology,
+    (SELECT COUNT(*) FROM opitemrece WHERE vn = ov.vn AND icode LIKE '1%' AND income IN ('03','17')) AS med_count,
+    (SELECT COUNT(*) FROM opitemrece WHERE vn = ov.vn AND income = '05') AS supply_count
 FROM ovst ov
 WHERE ov.vstdate = ?`
 
@@ -1349,7 +1351,9 @@ SELECT ov.vn,
     (SELECT MAX(lab_receive) FROM lab_head WHERE vn = ov.vn) AS lab_receive,
     (SELECT MAX(confirm_report) FROM lab_head WHERE vn = ov.vn) AS confirm_report,
     (SELECT MAX(confirm) FROM xray_report WHERE vn = ov.vn) AS xray_confirm,
-    (SELECT MAX(confirm_radiology) FROM xray_report WHERE vn = ov.vn) AS xray_confirm_radiology
+    (SELECT MAX(confirm_radiology) FROM xray_report WHERE vn = ov.vn) AS xray_confirm_radiology,
+    (SELECT COUNT(*) FROM opitemrece WHERE vn = ov.vn AND icode LIKE '1%' AND income IN ('03','17')) AS med_count,
+    (SELECT COUNT(*) FROM opitemrece WHERE vn = ov.vn AND income = '05') AS supply_count
 FROM ovst ov
 WHERE ov.vstdate = $1`
 
@@ -1432,15 +1436,19 @@ app.get('/api/queue/lab-xray', async (req, res) => {
   try {
     const today = getTodayDate()
     const rows = await queryDB(settings, LAB_XRAY_SQL_MYSQL, LAB_XRAY_SQL_PG, [today])
-    // Return as { vn: { lab_receive, confirm_report, xray_confirm, xray_confirm_radiology } }
+    // Return as { vn: { lab_receive, confirm_report, xray_confirm, xray_confirm_radiology, med_count, supply_count } }
     const data = {}
     for (const r of rows) {
-      if (r.lab_receive || r.confirm_report || r.xray_confirm || r.xray_confirm_radiology) {
+      const medCount = parseInt(r.med_count, 10) || 0
+      const supplyCount = parseInt(r.supply_count, 10) || 0
+      if (r.lab_receive || r.confirm_report || r.xray_confirm || r.xray_confirm_radiology || medCount > 0 || supplyCount > 0) {
         data[r.vn] = {
           lab_receive: r.lab_receive || null,
           confirm_report: r.confirm_report || null,
           xray_confirm: r.xray_confirm || null,
           xray_confirm_radiology: r.xray_confirm_radiology || null,
+          med_count: medCount,
+          supply_count: supplyCount,
         }
       }
     }
@@ -1842,11 +1850,29 @@ const wss = new WebSocketServer({ server })
 
 const clients = new Set()
 
+// A client's socket can go dead silently (laptop sleep, network change, backgrounded/throttled
+// tab, switching the display between browser-tab and Electron host windows) without either side
+// ever seeing a close/error event — readyState stays OPEN on both ends while no data actually
+// gets through, so broadcast() below looks successful but the display never receives the call.
+// Standard ws heartbeat: ping every client periodically: a client that doesn't pong before the
+// next tick gets terminated, which fires its close event and lets the browser's existing
+// auto-reconnect logic (getWS() in src/lib/api.ts) open a fresh, working connection.
 wss.on('connection', (ws) => {
+  ws.isAlive = true
+  ws.on('pong', () => { ws.isAlive = true })
   clients.add(ws)
   ws.on('close', () => clients.delete(ws))
   ws.on('error', () => clients.delete(ws))
 })
+
+const wsHeartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue }
+    ws.isAlive = false
+    ws.ping()
+  }
+}, 30000)
+wss.on('close', () => clearInterval(wsHeartbeat))
 
 function broadcast(data) {
   const msg = JSON.stringify(data)

@@ -177,6 +177,8 @@ export interface LabXrayStatus {
   confirm_report?: string | null
   xray_confirm?: string | null
   xray_confirm_radiology?: string | null
+  med_count?: number
+  supply_count?: number
 }
 
 export async function getLabXray(): Promise<Record<string, LabXrayStatus>> {

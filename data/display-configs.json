@@ -15,21 +15,22 @@
     "animationType": "scale",
     "soundEnabled": true,
     "channels": [
-      "1",
-      "2",
-      "3",
-      "4",
-      "ช่อง 5"
+      "ห้องตรวจ  1",
+      "ห้องตรวจ 2",
+      "ซักประวัติ 1",
+      "ซักประวัติ 2",
+      "ซักประวัติ 3"
     ]
   },
   {
-    "name": "ห้องยา OPD",
+    "id": "1786074803595",
+    "name": "คิวจ่ายยา OPD",
     "bgColor": "#00dbb7",
     "textColor": "#FFFFFF",
     "queueColor": "#00BCD4",
     "font": "Sarabun",
     "fontSize": 120,
-    "title": "ระบบคิวผู้ป่วยนอก",
+    "title": "ระบบคิวผู้ห้องยา",
     "subTitle": "OPD Queue System",
     "showClock": true,
     "queueBgColor": "rgba(0,188,212,0.15)",
@@ -40,7 +41,6 @@
       "1",
       "2",
       "3"
-    ],
-    "id": "1786074803595"
+    ]
   }
 ]

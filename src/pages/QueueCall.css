@@ -1355,6 +1355,24 @@
   color: #0D9488;
 }
 
+/* ─── Medicine (ยา) Status Icon ──────────────────────────────────────────── */
+
+/* มีรายการยา — pink/magenta, distinct from lab (red) and x-ray (orange) */
+.med-icon-ordered {
+  color: #BE185D;
+  background: rgba(219,39,119,0.13);
+  border: 1.5px solid rgba(219,39,119,0.45);
+}
+
+/* ─── เวชภัณฑ์ (Medical Supplies) Status Icon ────────────────────────────── */
+
+/* มีรายการเวชภัณฑ์ — indigo/blue-violet, distinct from all the above */
+.supply-icon-ordered {
+  color: #4338CA;
+  background: rgba(79,70,229,0.13);
+  border: 1.5px solid rgba(79,70,229,0.45);
+}
+
 /* ── Board channel filter (in the status filter row) — teal pill so it reads apart from status tabs ── */
 .qc-board-filter {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: 8px;
