@@ -19,6 +19,7 @@ interface QDConfig {
   cbBg1: string // สีพื้นหลัง ส่วนที่ 1
   cbBg2: string // สีพื้นหลัง ส่วนที่ 2
   cbSpFontSize2: number // ขนาดตัวอักษรกล่อง "ช่อง" ในส่วนที่ 2 (แยกจาก spFontSize ของจอตาราง)
+  showCbLeft: boolean // แสดง/ซ่อนส่วนที่ 1 "คิวที่กำลังเรียก" ทั้งบล็อก (callboard layout)
   cbHeader1: string // หัวคอลัมน์ ส่วนที่ 1 (พิมพ์ข้อความเองได้)
   cbLeftSize: number // % ความกว้างของส่วนที่ 1 (ที่เหลือเป็นของส่วนที่ 2) ปรับให้สอดคล้องกับจำนวนคอลัมน์ส่วนที่ 2
   cbSpLabelFontSize: number // ขนาดตัวอักษรป้าย "ช่อง X" ในส่วนที่ 1
@@ -96,6 +97,9 @@ interface QDConfig {
   // Per-column color override — key is column number (1-based) as string; falls back to
   // spColumnBg/spColumnColor/cbBg2 (or queueBg) when a column has no override set.
   columnColors: Record<string, { spBg: string; spColor: string; queueBg: string }>
+  // Per-column "ช่องบริการ" header text override — key is column number (1-based) as string;
+  // falls back to colSpHeader when a column has no override set.
+  columnHeaderText: Record<string, string>
   // Display identity (set from URL ?id=)
   displayConfigId: string
   displayConfigName: string
@@ -125,6 +129,7 @@ const DEFAULT: QDConfig = {
   cbBg1: '#ffffff',
   cbBg2: '#ffffff',
   cbSpFontSize2: 1.6,
+  showCbLeft: true,
   cbHeader1: 'คิวที่กำลังเรียก',
   cbLeftSize: 57,
   cbSpLabelFontSize: 1.4,
@@ -190,6 +195,7 @@ const DEFAULT: QDConfig = {
   spColumns: {},
   spRows: {},
   columnColors: {},
+  columnHeaderText: {},
   displayConfigId: '',
   displayConfigName: '',
   displayChannels: [],
@@ -232,6 +238,7 @@ function fixConfig(merged: Record<string, unknown>): QDConfig {
   if (typeof result.spColumns !== 'object' || Array.isArray(result.spColumns)) result.spColumns = {}
   if (typeof result.spRows !== 'object' || Array.isArray(result.spRows)) result.spRows = {}
   if (typeof result.columnColors !== 'object' || Array.isArray(result.columnColors)) result.columnColors = {}
+  if (typeof result.columnHeaderText !== 'object' || Array.isArray(result.columnHeaderText)) result.columnHeaderText = {}
   if (result.layout !== 'table' && result.layout !== 'callboard') result.layout = 'table'
   if (typeof result.upcomingCount !== 'number' || result.upcomingCount < 1) result.upcomingCount = DEFAULT.upcomingCount
   if (typeof result.cbFontSize1 !== 'number' || result.cbFontSize1 <= 0) result.cbFontSize1 = DEFAULT.cbFontSize1
@@ -522,7 +529,7 @@ export default function QueueDisplayPage() {
         getCallsToday(),
         getQueueList(cfg.upcomingQueueMode).catch(() => ({ success: false, data: [] }))
       ])
-      setNoShowQueues(calls.filter((c: CallEntry) => c.status === 'skip'))
+      setNoShowQueues(calls.filter((c: CallEntry) => c.status === 'skip' && !c.clearedFromDisplay))
       if (queueRes.success) {
         const waitingAll = computeUpcomingQueues(cfg, queueRes.data, lastCalledRef.current?.department)
         setWaitingQueues(waitingAll)
@@ -623,7 +630,7 @@ export default function QueueDisplayPage() {
         }
       }
       setTimeout(() => {
-        getCallsToday().then(c => setNoShowQueues(c.filter((x: CallEntry) => x.status === 'skip')))
+        getCallsToday().then(c => setNoShowQueues(c.filter((x: CallEntry) => x.status === 'skip' && !x.clearedFromDisplay)))
         getQueueList(cfg.upcomingQueueMode).then(r => {
           if (!r.success) return
           setWaitingQueues(computeUpcomingQueues(cfg, r.data, lastCalledRef.current?.department))
@@ -636,7 +643,7 @@ export default function QueueDisplayPage() {
   // WebSocket: status changed (skip/done/waiting) — refresh no-show list immediately
   useEffect(() => {
     const off = onQueueStatusChanged(() => {
-      getCallsToday().then(c => setNoShowQueues(c.filter((x: CallEntry) => x.status === 'skip')))
+      getCallsToday().then(c => setNoShowQueues(c.filter((x: CallEntry) => x.status === 'skip' && !x.clearedFromDisplay)))
     })
     return off
   }, [])
@@ -846,6 +853,9 @@ export default function QueueDisplayPage() {
       setSpQueues({})
       setSpNames({})
       setLastCalled(null)
+      // Server already deleted the matching no-show entries (so a later poll stays clear too);
+      // clear it here as well for instant feedback instead of waiting for the next poll.
+      setNoShowQueues([])
     })
     return off
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1022,6 +1032,7 @@ export default function QueueDisplayPage() {
 
   const renderColumn = (sps: typeof visibleSPs, colIdx: number) => {
     const colColor = config.columnColors[String(colIdx + 1)]
+    const colHeaderText = config.columnHeaderText[String(colIdx + 1)] || config.colSpHeader
     return (
     <div key={colIdx} className="qd-main" style={{ position: 'relative', borderRight: border }}>
       {config.spColumnVisible && colIdx === 0 && (
@@ -1030,7 +1041,7 @@ export default function QueueDisplayPage() {
       <div className="qd-thead">
         {config.spColumnVisible && (
           <div className="qd-th qd-th-sp" style={{ width: config.spColumnWidth, minWidth: config.spColumnWidth, background: config.spHeaderBg, color: config.spHeaderColor, borderRight: border, borderBottom: border }}>
-            <span className="qd-th-label">{config.colSpHeader}</span>
+            <span className="qd-th-label">{colHeaderText}</span>
           </div>
         )}
         <div className="qd-th qd-th-queue" style={{ background: config.tableHeaderBg, color: config.tableHeaderColor, borderBottom: border }}>
@@ -1103,6 +1114,7 @@ export default function QueueDisplayPage() {
 
     return (
       <div className="qd-cb-wrap">
+        {config.showCbLeft && (
         <div className="qd-cb-left" style={{ flex: `0 0 ${config.cbLeftSize}%` }}>
           <div className="qd-cb1-thead" style={{ background: config.tableHeaderBg, color: config.tableHeaderColor, height: config.cbHeaderHeight, fontSize: cbHeaderFontSize }}>
             {config.cbHeader1}
@@ -1150,6 +1162,7 @@ export default function QueueDisplayPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* ส่วนที่ 2: ช่องบริการ — แบ่งได้หลายคอลัมน์ (ตั้งค่าที่ "การจัดเรียงคอลัมน์") หัวคอลัมน์ + แถวแยกกล่อง "ช่อง" กับ "คิว" เป็นสี่เหลี่ยมขอบมน เว้นช่องไฟ ~2mm */}
         <div className="qd-cb2-multi">
@@ -1160,6 +1173,7 @@ export default function QueueDisplayPage() {
             </div>
           ) : columnGroups.map((sps, colIdx) => {
             const colColor = config.columnColors[String(colIdx + 1)]
+            const colHeaderText = config.columnHeaderText[String(colIdx + 1)] || config.colSpHeader
             return (
             <div className="qd-cb2-col" key={colIdx} style={{ position: 'relative' }}>
               {colIdx === 0 && (
@@ -1167,7 +1181,7 @@ export default function QueueDisplayPage() {
               )}
               <div className="qd-cb2-thead">
                 <div className="qd-cb2-th-sp" style={{ width: config.spColumnWidth, minWidth: config.spColumnWidth, height: config.cbHeaderHeight, background: config.spHeaderBg, color: config.spHeaderColor, fontSize: cbHeaderFontSize }}>
-                  {config.colSpHeader}
+                  {colHeaderText}
                 </div>
                 <div className="qd-cb2-th-queue" style={{ height: config.cbHeaderHeight, background: config.tableHeaderBg, color: config.tableHeaderColor, fontSize: cbHeaderFontSize }}>
                   {config.colQueueHeader}
@@ -1378,6 +1392,10 @@ export default function QueueDisplayPage() {
                 </div>
               </SRow>
               {config.layout === 'callboard' && <>
+                <SRow label="แสดงส่วนที่ 1 (คิวที่กำลังเรียก)">
+                  <Tog checked={config.showCbLeft} onChange={v => setConfig(c => ({ ...c, showCbLeft: v }))} />
+                </SRow>
+                {config.showCbLeft && <>
                 <SRow label="หัวคอลัมน์ ส่วนที่ 1">
                   <input className="input" value={config.cbHeader1}
                     placeholder="เช่น คิวที่กำลังเรียก"
@@ -1401,6 +1419,7 @@ export default function QueueDisplayPage() {
                     onChange={e => setConfig(c => ({ ...c, cbSpLabelFontSize: Number(e.target.value) }))}
                     className="qd-slider" />
                 </SRow>
+                </>}
                 <SRow label={`ขนาดตัวอักษรหัวคอลัมน์: ${config.cbHeaderFontSize}px`} hint="ใช้ร่วมกันทั้งหัวส่วนที่ 1 และหัวส่วนที่ 2 ให้อยู่ระดับเดียวกัน">
                   <input type="range" min="8" max="32" step="1" value={config.cbHeaderFontSize}
                     onChange={e => setConfig(c => ({ ...c, cbHeaderFontSize: Number(e.target.value) }))}
@@ -1636,10 +1655,10 @@ export default function QueueDisplayPage() {
                 })
               )}
 
-              {/* ── สีแยกตามคอลัมน์ ── */}
+              {/* ── ข้อความ/สีแยกตามคอลัมน์ ── */}
               {config.numColumns > 1 && (
                 <>
-                  <SSec>สีแยกตามคอลัมน์ (ไม่ตั้งค่า = ใช้สีค่าเริ่มต้นด้านบน)</SSec>
+                  <SSec>ข้อความ/สีแยกตามคอลัมน์ (ไม่ตั้งค่า = ใช้ค่าเริ่มต้นด้านบน)</SSec>
                   {Array.from({ length: config.numColumns }, (_, i) => {
                     const colKey = String(i + 1)
                     const cc = config.columnColors[colKey] || { spBg: '', spColor: '', queueBg: '' }
@@ -1651,6 +1670,11 @@ export default function QueueDisplayPage() {
                     return (
                       <div key={colKey} className="qd-colcolor-group">
                         <div className="qd-colcolor-label">คอลัมน์ {colKey}</div>
+                        <SRow label="หัวข้อ ช่องบริการ">
+                          <input className="input" value={config.columnHeaderText[colKey] || ''}
+                            placeholder={config.colSpHeader}
+                            onChange={e => setConfig(c => ({ ...c, columnHeaderText: { ...c.columnHeaderText, [colKey]: e.target.value } }))} />
+                        </SRow>
                         <SRow label="สีพื้นช่องบริการ">
                           <CInput value={cc.spBg || config.spColumnBg} onChange={v => setCC({ spBg: v })} />
                         </SRow>

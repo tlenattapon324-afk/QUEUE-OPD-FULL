@@ -1602,6 +1602,9 @@ app.post('/api/queue/status', (req, res) => {
     calledAt: existing.calledAt || now,
     ...(queueNo && !existing.queueNo ? { queueNo } : {}),
     ...(servicePoint && !existing.servicePoint ? { servicePoint } : {}),
+    // Any earlier "cleared from display" dismissal is stale now — this status change (e.g. a
+    // fresh no-show after a re-call) should show up on the display again, not stay hidden.
+    clearedFromDisplay: false,
   }
   saveTodayCalls(calls)
   broadcast({ type: 'queue:status', data: { vn, status, ...calls[key] } })
@@ -1620,6 +1623,37 @@ app.post('/api/display/config', (req, res) => {
 app.post('/api/display/clear', (req, res) => {
   const { displayConfigId } = req.body
   broadcast({ type: 'queue:clear', data: { displayConfigId: displayConfigId || null } })
+
+  // Also dismiss "เรียกแล้วไม่มา" (no-show) entries from the DISPLAY only — getCallsToday()
+  // keeps feeding the display's no-show panel from here, so a clear that only resets
+  // client-side state is undone within seconds otherwise. This flags them rather than
+  // deleting/changing status, so the queue-call page's own "ไม่มา" status/count (which reads
+  // the same records) is untouched; a later re-call that skips again clears the flag, so it's
+  // not hidden forever.
+  try {
+    let filterDepts = []
+    if (displayConfigId) {
+      const qdFile = qdConfigFile(displayConfigId)
+      const qdCfg = fs.existsSync(qdFile)
+        ? JSON.parse(fs.readFileSync(qdFile, 'utf-8'))
+        : (fs.existsSync(QD_DEFAULT_FILE) ? JSON.parse(fs.readFileSync(QD_DEFAULT_FILE, 'utf-8')) : null)
+      filterDepts = Array.isArray(qdCfg?.filterDepts) ? qdCfg.filterDepts : []
+    }
+    const calls = getTodayCalls()
+    let changed = false
+    for (const key of Object.keys(calls)) {
+      const c = calls[key]
+      if (c.status !== 'skip' || c.clearedFromDisplay) continue
+      // No specific display (clear all), or that display shows every department (no filter),
+      // or this entry's department is one it filters to — all count as "this display's no-shows".
+      if (!displayConfigId || filterDepts.length === 0 || filterDepts.includes(c.department)) {
+        c.clearedFromDisplay = true
+        changed = true
+      }
+    }
+    if (changed) saveTodayCalls(calls)
+  } catch {}
+
   res.json({ success: true })
 })
 

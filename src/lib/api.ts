@@ -203,6 +203,7 @@ export interface CallEntry {
   calledAt: string
   queueNo: string
   department?: string
+  clearedFromDisplay?: boolean
 }
 
 export async function getCallsToday(mode?: string): Promise<CallEntry[]> {

@@ -636,9 +636,12 @@ export default function QueueCallPage() {
       // filtered rows first — a VN can have multiple opd_qs_slot records (one per doctor), so
       // calling by a bare VN/HN would let the server match whichever one it finds first, possibly
       // a different doctor's slot than the one currently filtered on screen.
+      // Search ALL statuses here (not filteredQueues, which inherits the active filterStatus tab
+      // and so drops 'skip'/'done' rows) — this box is also how a no-show patient gets re-called
+      // by typing their queue number or HN, regardless of which status tab happens to be open.
       let callVal = val
       if (filterDepts.length > 0) {
-        const match = filteredQueues.find(q =>
+        const match = queues.filter(q => filterDepts.includes(roomKeyOf(q))).find(q =>
           String(q.vn) === val || String(q.hn || '') === val ||
           String(q.queue_no ?? '') === val || String(q.queue_slot || '') === val
         )
