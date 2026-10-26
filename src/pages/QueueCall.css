@@ -224,12 +224,12 @@
   border-radius: 10px;
 }
 .qc-mode-group.group-prefix {
-  background: rgba(0,105,92,0.09);
-  border: 1px solid rgba(0,105,92,0.2);
+  background: rgba(0,105,92,0.06);
+  border: 1.5px solid rgba(0,105,92,0.45);
 }
 .qc-mode-group.group-opd {
-  background: rgba(106,27,154,0.09);
-  border: 1px solid rgba(106,27,154,0.2);
+  background: rgba(106,27,154,0.06);
+  border: 1.5px solid rgba(106,27,154,0.45);
 }
 .qc-mode-sep {
   width: 1px;
@@ -247,18 +247,18 @@
   white-space: nowrap;
 }
 /* Prefix group (teal) */
-.qc-mode-btn.prefix { color: #00695C; }
-.qc-mode-btn.prefix:hover { background: rgba(0,105,92,0.1); }
+.qc-mode-btn.prefix { color: #00695C; background: rgba(0,105,92,0.08); }
+.qc-mode-btn.prefix:hover { background: rgba(0,105,92,0.16); }
 .qc-mode-btn.prefix.active {
   background: #00796B; color: #fff;
-  box-shadow: 0 2px 8px rgba(0,105,92,0.35);
+  box-shadow: 0 2px 10px rgba(0,105,92,0.45);
 }
 /* OPD group (purple) */
-.qc-mode-btn.opd { color: #6A1B9A; }
-.qc-mode-btn.opd:hover { background: rgba(106,27,154,0.1); }
+.qc-mode-btn.opd { color: #6A1B9A; background: rgba(106,27,154,0.08); }
+.qc-mode-btn.opd:hover { background: rgba(106,27,154,0.16); }
 .qc-mode-btn.opd.active {
   background: #7B1FA2; color: #fff;
-  box-shadow: 0 2px 8px rgba(106,27,154,0.35);
+  box-shadow: 0 2px 10px rgba(106,27,154,0.45);
 }
 .qc-topbar-right { display: flex; align-items: center; gap: 12px; }
 .qc-clock { font-size: 20px; font-weight: 700; color: #0097A7; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
@@ -312,6 +312,14 @@
   cursor: pointer; transition: all 0.15s; text-align: left;
 }
 .qc-sd-action:hover { background: rgba(13,71,161,0.06); color: #0D47A1; }
+.qc-sd-section-label { padding: 12px 16px 4px; font-size: 12px; color: #90A4AE; }
+.qc-sd-checkbox {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 16px;
+  color: #37474F; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.qc-sd-checkbox input { accent-color: #1565C0; width: 15px; height: 15px; cursor: pointer; }
 
 /* ── Body ── */
 .qc-body {
@@ -814,6 +822,7 @@
 .qc-td-center { text-align: center; }
 .qc-td-date  { font-size: 13px; color: #90A4AE; white-space: nowrap; line-height: 1.5; }
 .qc-td-time  { font-size: 12px; color: #0097A7; font-weight: 700; font-variant-numeric: tabular-nums; }
+.qc-td-signtime { color: #E65100; }
 .qc-td-hn {
   white-space: nowrap;
 }

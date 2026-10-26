@@ -1148,7 +1148,10 @@ SELECT ov.vstdate, ov.vsttime,
     (SELECT d.name FROM oapp oa2 LEFT JOIN doctor d ON d.code = oa2.doctor WHERE oa2.hn = ov.hn AND oa2.nextdate = ov.vstdate AND oa2.depcode = ov.cur_dep LIMIT 1) AS doctor_name,
     (SELECT c.name FROM oapp oa3 LEFT JOIN clinic c ON c.clinic = oa3.clinic WHERE oa3.hn = ov.hn AND oa3.nextdate = ov.vstdate AND oa3.depcode = ov.cur_dep LIMIT 1) AS clinic_name,
     ist.name AS ist_name,
-    ost.name AS ost_name
+    ost.name AS ost_name,
+    (SELECT MAX(ds.sign_datetime)
+       FROM ovst_doctor_sign ds
+      WHERE ds.vn = os.vn AND ds.sign_date = os.schedule_date) AS sign_datetime
 FROM opd_qs_slot os
 LEFT JOIN ovst ov ON ov.vn = os.vn
 LEFT JOIN patient pt ON pt.hn = ov.hn
@@ -1158,7 +1161,8 @@ LEFT JOIN ovstost ost ON ost.ovstost = ov.ovstost
 LEFT JOIN kskdepartment k ON k.depcode = ov.cur_dep
 LEFT JOIN opd_qs_room oq ON oq.opd_qs_room_id = os.opd_qs_room_id
 WHERE os.schedule_date = ? AND ov.vn IS NOT NULL
-ORDER BY k.department, os.queue_slot_number`
+  AND EXISTS (SELECT 1 FROM ovst_doctor_sign ds2 WHERE ds2.vn = os.vn AND ds2.sign_date = os.schedule_date)
+ORDER BY sign_datetime`
 
 const SLOT_CUR_SQL_PG = `
 SELECT ov.vstdate, ov.vsttime,
@@ -1177,7 +1181,10 @@ SELECT ov.vstdate, ov.vsttime,
     (SELECT d.name FROM oapp oa2 LEFT JOIN doctor d ON d.code = oa2.doctor WHERE oa2.hn = ov.hn AND oa2.nextdate = ov.vstdate AND oa2.depcode = ov.cur_dep LIMIT 1) AS doctor_name,
     (SELECT c.name FROM oapp oa3 LEFT JOIN clinic c ON c.clinic = oa3.clinic WHERE oa3.hn = ov.hn AND oa3.nextdate = ov.vstdate AND oa3.depcode = ov.cur_dep LIMIT 1) AS clinic_name,
     ist.name AS ist_name,
-    ost.name AS ost_name
+    ost.name AS ost_name,
+    (SELECT MAX(ds.sign_datetime)
+       FROM ovst_doctor_sign ds
+      WHERE ds.vn = os.vn AND ds.sign_date = os.schedule_date) AS sign_datetime
 FROM opd_qs_slot os
 LEFT JOIN ovst ov ON ov.vn = os.vn
 LEFT JOIN patient pt ON pt.hn = ov.hn
@@ -1187,7 +1194,8 @@ LEFT JOIN ovstost ost ON ost.ovstost = ov.ovstost
 LEFT JOIN kskdepartment k ON k.depcode = ov.cur_dep
 LEFT JOIN opd_qs_room oq ON oq.opd_qs_room_id = os.opd_qs_room_id
 WHERE os.schedule_date = $1 AND ov.vn IS NOT NULL
-ORDER BY k.department, os.queue_slot_number`
+  AND EXISTS (SELECT 1 FROM ovst_doctor_sign ds2 WHERE ds2.vn = os.vn AND ds2.sign_date = os.schedule_date)
+ORDER BY sign_datetime`
 
 // ─── OPD Visit SQL (OPD mode — ovst) ─────────────────────────────────────────
 
@@ -1258,7 +1266,10 @@ SELECT ov.vstdate, ov.vsttime,
     (SELECT d.name FROM oapp oa2 LEFT JOIN doctor d ON d.code = oa2.doctor WHERE oa2.hn = ov.hn AND oa2.nextdate = ov.vstdate AND oa2.depcode = ov.cur_dep LIMIT 1) AS doctor_name,
     (SELECT c.name FROM oapp oa3 LEFT JOIN clinic c ON c.clinic = oa3.clinic WHERE oa3.hn = ov.hn AND oa3.nextdate = ov.vstdate AND oa3.depcode = ov.cur_dep LIMIT 1) AS clinic_name,
     ist.name AS ist_name,
-    ost.name AS ost_name
+    ost.name AS ost_name,
+    (SELECT MAX(ds.sign_datetime)
+       FROM ovst_doctor_sign ds
+      WHERE ds.vn = ov.vn AND ds.sign_date = ov.vstdate) AS sign_datetime
 FROM ovst ov
 LEFT JOIN patient pt ON pt.hn = ov.hn
 LEFT JOIN pttype p ON p.pttype = ov.pttype
@@ -1266,7 +1277,8 @@ LEFT JOIN ovstist ist ON ist.ovstist = ov.ovstist
 LEFT JOIN ovstost ost ON ost.ovstost = ov.ovstost
 LEFT JOIN kskdepartment k ON k.depcode = ov.cur_dep
 WHERE ov.vstdate = ?
-ORDER BY k.department, ov.oqueue`
+  AND EXISTS (SELECT 1 FROM ovst_doctor_sign ds2 WHERE ds2.vn = ov.vn AND ds2.sign_date = ov.vstdate)
+ORDER BY sign_datetime`
 
 const CUR_DEP_SQL_PG = `
 SELECT ov.vstdate, ov.vsttime,
@@ -1283,7 +1295,10 @@ SELECT ov.vstdate, ov.vsttime,
     (SELECT d.name FROM oapp oa2 LEFT JOIN doctor d ON d.code = oa2.doctor WHERE oa2.hn = ov.hn AND oa2.nextdate = ov.vstdate AND oa2.depcode = ov.cur_dep LIMIT 1) AS doctor_name,
     (SELECT c.name FROM oapp oa3 LEFT JOIN clinic c ON c.clinic = oa3.clinic WHERE oa3.hn = ov.hn AND oa3.nextdate = ov.vstdate AND oa3.depcode = ov.cur_dep LIMIT 1) AS clinic_name,
     ist.name AS ist_name,
-    ost.name AS ost_name
+    ost.name AS ost_name,
+    (SELECT MAX(ds.sign_datetime)
+       FROM ovst_doctor_sign ds
+      WHERE ds.vn = ov.vn AND ds.sign_date = ov.vstdate) AS sign_datetime
 FROM ovst ov
 LEFT JOIN patient pt ON pt.hn = ov.hn
 LEFT JOIN pttype p ON p.pttype = ov.pttype
@@ -1291,7 +1306,8 @@ LEFT JOIN ovstist ist ON ist.ovstist = ov.ovstist
 LEFT JOIN ovstost ost ON ost.ovstost = ov.ovstost
 LEFT JOIN kskdepartment k ON k.depcode = ov.cur_dep
 WHERE ov.vstdate = $1
-ORDER BY k.department, ov.oqueue`
+  AND EXISTS (SELECT 1 FROM ovst_doctor_sign ds2 WHERE ds2.vn = ov.vn AND ds2.sign_date = ov.vstdate)
+ORDER BY sign_datetime`
 
 function getSQLByMode(mode) {
   if (mode === 'opd')      return { mysql: OPD_SQL_MYSQL,      pg: OPD_SQL_PG }
@@ -1309,6 +1325,12 @@ function toLocalDateStr(val) {
   if (!val) return null
   const d = new Date(val)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function toLocalTimeStr(val) {
+  if (!val) return null
+  const d = new Date(val)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 // ─── Lab / X-ray status SQL (loaded separately after queue list) ─────────────
@@ -1392,6 +1414,7 @@ app.get('/api/queue/list', async (req, res) => {
         vstdate: toLocalDateStr(r.vstdate),
         queue_slot: r.queue_slot != null ? String(r.queue_slot) : null,
         queue_no: r.queue_no != null ? String(r.queue_no) : '',
+        sign_time: toLocalTimeStr(r.sign_datetime),
         status: effectiveStatus,
         service_point: effectiveSP
       }

@@ -84,6 +84,9 @@ export default function QueueCallPage() {
   const [manualTab, setManualTab] = useState<'search' | 'scan'>('search')
   const [confirmEnabled, setConfirmEnabled] = useState(() => localStorage.getItem('qc_confirm') === 'true')
   const [repeatAnnounce, setRepeatAnnounce] = useState(() => localStorage.getItem('qc_repeat_announce') === 'true')
+  // แสดง/ซ่อนกลุ่มปุ่มเลือกโหมดเรียกคิว — default เปิดทั้งคู่ไว้ตามพฤติกรรมเดิม
+  const [showPrefixGroup, setShowPrefixGroup] = useState(() => localStorage.getItem('qc_show_prefix_group') !== 'false')
+  const [showOpdGroup, setShowOpdGroup] = useState(() => localStorage.getItem('qc_show_opd_group') !== 'false')
   const [pendingCall, setPendingCall] = useState<QueueRow | null>(null)
   const [showDisplayMenu, setShowDisplayMenu] = useState(false)
   const [showChannelMenu, setShowChannelMenu] = useState(false)
@@ -749,6 +752,17 @@ export default function QueueCallPage() {
       return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard && matchLab
     })
     .sort((a, b) => {
+      // Queue_OPD_Room / Queue_Prefix_Room: sort by the doctor's actual sign-in time
+      // (ovst_doctor_sign.sign_datetime) so the call order follows who the doctor signed
+      // in first, not the ticket/queue number. Falls through to each mode's own tie-breaker
+      // below when neither side has signed in yet.
+      if (mode === 'cur_dep' || mode === 'slot_cur') {
+        const as = a.sign_datetime ? new Date(a.sign_datetime).getTime() : null
+        const bs = b.sign_datetime ? new Date(b.sign_datetime).getTime() : null
+        if (as !== null && bs !== null) return as - bs
+        if (as !== null) return -1
+        if (bs !== null) return 1
+      }
       // Queue_OPD / Queue_OPD_Room: sort oqueue (queue_no) numerically ascending
       if (mode === 'opd' || mode === 'cur_dep') {
         const an = parseInt(String(a.queue_no ?? ''), 10)
@@ -1023,34 +1037,38 @@ export default function QueueCallPage() {
         <div className="qc-topbar-center">
           <div className="qc-mode-switch">
             {/* ── กลุ่ม 1: Queue Prefix (opd_qs_slot) ── */}
-            <div className="qc-mode-group group-prefix">
-              <button
-                className={`qc-mode-btn prefix${mode === 'slot' ? ' active' : ''}`}
-                onClick={() => { setMode('slot'); localStorage.setItem('qc_mode', 'slot') }}
-                title="HOSxP Queue Slot (opd_qs_slot / main_dep)"
-              >Queue_Prefix</button>
-              <button
-                className={`qc-mode-btn prefix${mode === 'slot_cur' ? ' active' : ''}`}
-                onClick={() => { setMode('slot_cur'); localStorage.setItem('qc_mode', 'slot_cur') }}
-                title="HOSxP Queue Slot ตามห้องตรวจปัจจุบัน (opd_qs_slot / cur_dep)"
-              >Queue_Prefix_Room</button>
-            </div>
+            {showPrefixGroup && (
+              <div className="qc-mode-group group-prefix">
+                <button
+                  className={`qc-mode-btn prefix${mode === 'slot' ? ' active' : ''}`}
+                  onClick={() => { setMode('slot'); localStorage.setItem('qc_mode', 'slot') }}
+                  title="HOSxP Queue Slot (opd_qs_slot / main_dep)"
+                >คิวซักประวัติ</button>
+                <button
+                  className={`qc-mode-btn prefix${mode === 'slot_cur' ? ' active' : ''}`}
+                  onClick={() => { setMode('slot_cur'); localStorage.setItem('qc_mode', 'slot_cur') }}
+                  title="HOSxP Queue Slot ตามห้องตรวจปัจจุบัน (opd_qs_slot / cur_dep)"
+                >คิวห้องตรวจ</button>
+              </div>
+            )}
 
-            <div className="qc-mode-sep" />
+            {showPrefixGroup && showOpdGroup && <div className="qc-mode-sep" />}
 
             {/* ── กลุ่ม 2: Queue OPD (ovst) ── */}
-            <div className="qc-mode-group group-opd">
-              <button
-                className={`qc-mode-btn opd${mode === 'opd' ? ' active' : ''}`}
-                onClick={() => { setMode('opd'); localStorage.setItem('qc_mode', 'opd') }}
-                title="OPD Visit (ovst / main_dep)"
-              >Queue_OPD</button>
-              <button
-                className={`qc-mode-btn opd${mode === 'cur_dep' ? ' active' : ''}`}
-                onClick={() => { setMode('cur_dep'); localStorage.setItem('qc_mode', 'cur_dep') }}
-                title="OPD Visit ตามห้องตรวจปัจจุบัน (ovst / cur_dep)"
-              >Queue_OPD_Room</button>
-            </div>
+            {showOpdGroup && (
+              <div className="qc-mode-group group-opd">
+                <button
+                  className={`qc-mode-btn opd${mode === 'opd' ? ' active' : ''}`}
+                  onClick={() => { setMode('opd'); localStorage.setItem('qc_mode', 'opd') }}
+                  title="OPD Visit (ovst / main_dep)"
+                >QN ทั่วไป</button>
+                <button
+                  className={`qc-mode-btn opd${mode === 'cur_dep' ? ' active' : ''}`}
+                  onClick={() => { setMode('cur_dep'); localStorage.setItem('qc_mode', 'cur_dep') }}
+                  title="OPD Visit ตามห้องตรวจปัจจุบัน (ovst / cur_dep)"
+                >QN ห้องตรวจ</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1108,6 +1126,26 @@ export default function QueueCallPage() {
                   </svg>
                   รีเฟรชคิว
                 </button>
+                <div className="qc-sd-divider" />
+                <div className="qc-sd-section-label">แสดงโหมดเรียกคิว</div>
+                <label className="qc-sd-checkbox">
+                  <input type="checkbox" checked={showPrefixGroup}
+                    onChange={e => {
+                      if (!e.target.checked && !showOpdGroup) return // ต้องเปิดไว้อย่างน้อย 1 กลุ่ม
+                      setShowPrefixGroup(e.target.checked)
+                      localStorage.setItem('qc_show_prefix_group', String(e.target.checked))
+                    }} />
+                  คิวซักประวัติ / คิวห้องตรวจ
+                </label>
+                <label className="qc-sd-checkbox">
+                  <input type="checkbox" checked={showOpdGroup}
+                    onChange={e => {
+                      if (!e.target.checked && !showPrefixGroup) return
+                      setShowOpdGroup(e.target.checked)
+                      localStorage.setItem('qc_show_opd_group', String(e.target.checked))
+                    }} />
+                  QN ทั่วไป / QN ห้องตรวจ
+                </label>
               </div>
             )}
           </div>
@@ -1685,6 +1723,9 @@ export default function QueueCallPage() {
                         {q.department || '—'}
                         {q.clinic_name && (
                           <div className="qc-clinic-name"><span className="qc-clinic-label">คลินิก : </span>{q.clinic_name}</div>
+                        )}
+                        {(mode === 'cur_dep' || mode === 'slot_cur') && q.sign_time && (
+                          <div className="qc-td-time qc-td-signtime" title="เวลาที่แพทย์ sign">⏱ {q.sign_time}</div>
                         )}
                       </td>
                       <td className="qc-td-center">

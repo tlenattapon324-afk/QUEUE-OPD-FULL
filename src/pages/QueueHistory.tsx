@@ -6,10 +6,10 @@ import './QueueHistory.css'
 type HistoryMode = 'slot' | 'opd' | 'cur_dep' | 'slot_cur'
 
 const MODE_LABELS: Record<HistoryMode, string> = {
-  slot: 'Queue_Prefix',
-  slot_cur: 'Queue_Prefix_Room',
-  opd: 'Queue_OPD',
-  cur_dep: 'Queue_OPD_Room',
+  slot: 'คิวซักประวัติ',
+  slot_cur: 'คิวห้องตรวจ',
+  opd: 'QN ทั่วไป',
+  cur_dep: 'QN ห้องตรวจ',
 }
 const MODE_GROUP: Record<HistoryMode, 'prefix' | 'opd'> = {
   slot: 'prefix', slot_cur: 'prefix',

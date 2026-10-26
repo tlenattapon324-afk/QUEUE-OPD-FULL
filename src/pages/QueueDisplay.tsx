@@ -1393,10 +1393,10 @@ export default function QueueDisplayPage() {
                   <SRow label="ประเภทคิว (ดึงคิวถัดไปตามโหมดนี้)">
                     <div className="qd-radio-group">
                       {([
-                        ['slot', 'Queue_Prefix'],
-                        ['slot_cur', 'Queue_Prefix_Room'],
-                        ['opd', 'Queue_OPD'],
-                        ['cur_dep', 'Queue_OPD_Room'],
+                        ['slot', 'คิวซักประวัติ'],
+                        ['slot_cur', 'คิวห้องตรวจ'],
+                        ['opd', 'QN ทั่วไป'],
+                        ['cur_dep', 'QN ห้องตรวจ'],
                       ] as const).map(([val, label]) => (
                         <label key={val} className="qd-radio-label">
                           <input type="radio" name="qd-upcoming-mode" value={val}

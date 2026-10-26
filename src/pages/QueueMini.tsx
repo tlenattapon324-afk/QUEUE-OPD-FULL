@@ -333,6 +333,15 @@ export default function QueueMiniPage() {
     const next = [...queues]
       .filter(q => q.status === 'waiting' && byDeptFilter(q))
       .sort((a, b) => {
+        // Queue_OPD_Room/Queue_Prefix_Room: sort by the doctor's sign-in time — matches the
+        // main queue-call page's ordering for these two ห้องตรวจ-filtered modes.
+        if (mode === 'cur_dep' || mode === 'slot_cur') {
+          const as = a.sign_datetime ? new Date(a.sign_datetime).getTime() : null
+          const bs = b.sign_datetime ? new Date(b.sign_datetime).getTime() : null
+          if (as !== null && bs !== null) return as - bs
+          if (as !== null) return -1
+          if (bs !== null) return 1
+        }
         // Queue_Prefix/Queue_Prefix_Room: sort by queue_slot (prefix, then numeric suffix) —
         // matches the order shown on the main queue-call page for the same ห้องตรวจ filter.
         if (mode === 'slot' || mode === 'slot_cur') {
