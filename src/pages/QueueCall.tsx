@@ -690,6 +690,21 @@ export default function QueueCallPage() {
 
   const deptOptions = Array.from(new Set(activeQueues.map(roomKeyOf).filter(Boolean))).sort()
 
+  // filterDepts is shared across all 4 modes, but roomKeyOf's meaning differs per mode
+  // (doctor name for slot, real department for the rest) — a selection made in one mode
+  // can silently zero out every row after switching mode (or reloading into a different
+  // mode than last saved), since none of the stale values match the new mode's options.
+  // Drop any selected value that no longer exists among the current mode's options.
+  const deptOptionsKey = deptOptions.join('|')
+  useEffect(() => {
+    if (!deptOptionsKey) return
+    const valid = new Set(deptOptionsKey.split('|'))
+    setFilterDepts(prev => {
+      const next = prev.filter(d => valid.has(d))
+      return next.length === prev.length ? prev : next
+    })
+  }, [mode, deptOptionsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleDept = (dept: string) =>
     setFilterDepts(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
 
