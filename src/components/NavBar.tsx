@@ -104,16 +104,6 @@ export default function NavBar() {
     })
   }
 
-  const downloadShortcut = (name: string, path: string) => {
-    const url = serverOrigin + path
-    const a = document.createElement('a')
-    // Anchor-click downloads bypass fetch() entirely, so the window.fetch token patch in
-    // src/lib/api.ts never sees this request — the token has to be appended here directly.
-    const token = window.__API_TOKEN__ ? `&token=${encodeURIComponent(window.__API_TOKEN__)}` : ''
-    a.href = `/api/shortcut/download?name=${encodeURIComponent(name)}&url=${encodeURIComponent(url)}${token}`
-    a.click()
-  }
-
   const saveShortcut = async (key: string, name: string, path: string) => {
     const url = serverOrigin + path
     try {
@@ -340,9 +330,9 @@ export default function NavBar() {
                                 {copiedKey === key ? '✓ คัดลอกแล้ว' : 'คัดลอก'}
                               </button>
                               <button className="app-nav-shortcut-btn"
-                                onClick={() => downloadShortcut(cfg.name, path)}
-                                title="ดาวน์โหลด Shortcut (.url)">
-                                ⬇ .url
+                                onClick={() => saveShortcut(key, cfg.name, path)}
+                                title="บันทึก Shortcut (.url) ลง Desktop ของเครื่องนี้">
+                                {savedKey === key ? '✓ บันทึกแล้ว' : '📌 Desktop'}
                               </button>
                             </div>
                           )
@@ -367,9 +357,9 @@ export default function NavBar() {
                               {copiedKey === p.path ? '✓ คัดลอกแล้ว' : 'คัดลอก'}
                             </button>
                             <button className="app-nav-shortcut-btn"
-                              onClick={() => downloadShortcut(p.label, p.path)}
-                              title="ดาวน์โหลด Shortcut (.url)">
-                              ⬇ .url
+                              onClick={() => saveShortcut(p.path, p.label, p.path)}
+                              title="บันทึก Shortcut (.url) ลง Desktop ของเครื่องนี้">
+                              {savedKey === p.path ? '✓ บันทึกแล้ว' : '📌 Desktop'}
                             </button>
                           </div>
                         )

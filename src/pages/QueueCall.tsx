@@ -19,7 +19,7 @@ function getPrefsKey() {
 function loadSavedPrefs() {
   try {
     return JSON.parse(localStorage.getItem(getPrefsKey()) || 'null') as
-      { servicePointId?: string; filterDepts?: string[]; selectedDisplayId?: string; visitFilter?: 'all' | 'appt' | 'walkin'; selectedDoctors?: string[]; selectedClinics?: string[] } | null
+      { servicePointId?: string; filterDepts?: string[]; selectedDisplayId?: string; visitFilter?: 'all' | 'appt' | 'walkin'; selectedDoctors?: string[]; selectedClinics?: string[]; tableZoom?: number } | null
   } catch { return null }
 }
 
@@ -59,6 +59,7 @@ export default function QueueCallPage() {
   const [deptSearch, setDeptSearch] = useState('')
   const deptSearchRef = useRef<HTMLInputElement>(null)
   const [visitFilter, setVisitFilter] = useState<'all' | 'appt' | 'walkin'>(() => loadSavedPrefs()?.visitFilter || 'all')
+  const [tableZoom, setTableZoom] = useState<number>(() => loadSavedPrefs()?.tableZoom || 100)
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>(() => loadSavedPrefs()?.selectedDoctors || [])
   const [doctorList, setDoctorList] = useState<Array<{ department: string; doctor_name: string }>>([])
   const [showDoctorMenu, setShowDoctorMenu] = useState(false)
@@ -98,6 +99,7 @@ export default function QueueCallPage() {
       return { ...defaults, ...saved }
     } catch { return defaults }
   })
+  const [showColumnMenu, setShowColumnMenu] = useState(false)
   const toggleColumn = (key: string) => setVisibleColumns(prev => {
     const next = { ...prev, [key]: !prev[key] }
     localStorage.setItem('qc_visible_columns', JSON.stringify(next))
@@ -125,6 +127,8 @@ export default function QueueCallPage() {
   const [labXrayMap, setLabXrayMap] = useState<Record<string, LabXrayStatus>>({})
   const [showLabFilterMenu, setShowLabFilterMenu] = useState(false)
   const [labFilterStatuses, setLabFilterStatuses] = useState<string[]>([])
+  const [showXrayFilterMenu, setShowXrayFilterMenu] = useState(false)
+  const [xrayFilterStatuses, setXrayFilterStatuses] = useState<string[]>([])
   const [medFilterEnabled, setMedFilterEnabled] = useState(false)
   const [supplyFilterEnabled, setSupplyFilterEnabled] = useState(false)
   const lastCalledVnRef = useRef<string | null>(null)
@@ -163,7 +167,7 @@ export default function QueueCallPage() {
   }, [])
 
   const savePrefs = () => {
-    localStorage.setItem(getPrefsKey(), JSON.stringify({ servicePointId, filterDepts, selectedDisplayId, visitFilter, selectedDoctors, selectedClinics }))
+    localStorage.setItem(getPrefsKey(), JSON.stringify({ servicePointId, filterDepts, selectedDisplayId, visitFilter, selectedDoctors, selectedClinics, tableZoom }))
     setSavedPrefsMsg(true)
     setTimeout(() => setSavedPrefsMsg(false), 2500)
   }
@@ -752,6 +756,23 @@ export default function QueueCallPage() {
     labStatusOf(q) === status && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
   ).length
 
+  // Mirrors the X-RAY column badge's own precedence exactly — ถ่ายแล้ว > รับแล้ว > สั่ง.
+  const xrayStatusOf = (q: QueueRow): 'ordered' | 'received' | 'taken' | null => {
+    const lx = labXrayMap[q.vn]
+    if (!lx) return null
+    if (lx.xray_confirm_radiology === 'Y') return 'taken'
+    if (lx.xray_confirm === 'Y') return 'received'
+    if (!lx.xray_confirm && !lx.xray_confirm_radiology) return null
+    return 'ordered'
+  }
+
+  const toggleXrayStatus = (status: string) =>
+    setXrayFilterStatuses(prev => prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status])
+
+  const xrayStatusCount = (status: string) => activeQueues.filter(q =>
+    xrayStatusOf(q) === status && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
+  ).length
+
   const medOrderCount = activeQueues.filter(q =>
     (labXrayMap[q.vn]?.med_count || 0) > 0 && (filterDepts.length === 0 || filterDepts.includes(roomKeyOf(q)))
   ).length
@@ -778,9 +799,10 @@ export default function QueueCallPage() {
       const matchDoctor = visitFilter !== 'appt' || selectedDoctors.length === 0 || (!!q.doctor_name && selectedDoctors.includes(q.doctor_name))
       const matchClinic = visitFilter !== 'appt' || selectedClinics.length === 0 || (!!q.clinic_name && selectedClinics.includes(q.clinic_name))
       const matchLab = labFilterStatuses.length === 0 || labFilterStatuses.includes(labStatusOf(q) || '')
+      const matchXray = xrayFilterStatuses.length === 0 || xrayFilterStatuses.includes(xrayStatusOf(q) || '')
       const matchMed = !medFilterEnabled || (labXrayMap[q.vn]?.med_count || 0) > 0
       const matchSupply = !supplyFilterEnabled || (labXrayMap[q.vn]?.supply_count || 0) > 0
-      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard && matchLab && matchMed && matchSupply
+      return matchDept && matchStatus && matchVisit && matchDoctor && matchClinic && matchBoard && matchLab && matchXray && matchMed && matchSupply
     })
     .sort((a, b) => {
       // Queue_OPD_Room / Queue_Prefix_Room: sort by the doctor's actual sign-in time
@@ -1178,8 +1200,16 @@ export default function QueueCallPage() {
                   QN ทั่วไป / QN ห้องตรวจ
                 </label>
                 <div className="qc-sd-divider" />
-                <div className="qc-sd-section-label">แสดงคอลัมน์ตาราง</div>
-                {([
+                <button type="button" className="qc-sd-section-label qc-sd-section-toggle"
+                  onClick={() => setShowColumnMenu(v => !v)}>
+                  แสดงคอลัมน์ตาราง
+                  {(() => {
+                    const hiddenCount = Object.values(visibleColumns).filter(v => !v).length
+                    return hiddenCount > 0 ? ` (ซ่อน ${hiddenCount})` : ''
+                  })()}
+                  <span className={`qc-sd-section-arrow${showColumnMenu ? ' open' : ''}`}>▾</span>
+                </button>
+                {showColumnMenu && ([
                   ['date', 'วันที่'],
                   ['lab', 'Lab'],
                   ['xray', 'X-ray'],
@@ -1349,6 +1379,34 @@ export default function QueueCallPage() {
               ))}
               {labFilterStatuses.length > 0 && (
                 <button className="qc-lab-filter-clear" onClick={() => setLabFilterStatuses([])}>ล้างตัวกรอง</button>
+              )}
+            </div>
+          )}
+
+          <label className="qc-lab-filter-toggle">
+            <input type="checkbox" checked={showXrayFilterMenu}
+              onChange={e => setShowXrayFilterMenu(e.target.checked)} />
+            <span>🩻 กรองคิวที่มีการสั่ง X-ray{xrayFilterStatuses.length > 0 ? ` (${xrayFilterStatuses.length})` : ''}</span>
+            {!showXrayFilterMenu && xrayFilterStatuses.length > 0 && (
+              <span className="qc-lab-filter-active-check" title="มีตัวกรอง X-ray ทำงานอยู่">✓</span>
+            )}
+          </label>
+          {showXrayFilterMenu && (
+            <div className="qc-lab-filter-menu">
+              {([
+                ['ordered', 'สั่ง X-ray แล้ว'],
+                ['received', 'รับรายการ X-ray แล้ว'],
+                ['taken', 'ถ่ายภาพแล้ว'],
+              ] as const).map(([val, label]) => (
+                <label key={val} className="qc-lab-filter-item">
+                  <input type="checkbox" checked={xrayFilterStatuses.includes(val)}
+                    onChange={() => toggleXrayStatus(val)} />
+                  <span>{label}</span>
+                  <span className="qc-lab-filter-cnt">{xrayStatusCount(val)}</span>
+                </label>
+              ))}
+              {xrayFilterStatuses.length > 0 && (
+                <button className="qc-lab-filter-clear" onClick={() => setXrayFilterStatuses([])}>ล้างตัวกรอง</button>
               )}
             </div>
           )}
@@ -1608,6 +1666,11 @@ export default function QueueCallPage() {
                 </div>
               )}
             </div>
+            <div className="qc-table-zoom-ctrl" title="ขนาดตัวอักษรในตาราง">
+              <button onClick={() => setTableZoom(z => Math.max(60, z - 10))}>−</button>
+              <span>{tableZoom}%</span>
+              <button onClick={() => setTableZoom(z => Math.min(160, z + 10))}>+</button>
+            </div>
             </div>
             <div className="qc-filter-tabs">
               {(['all', 'waiting', 'calling', 'done', 'skip'] as const).map(s => (
@@ -1659,7 +1722,7 @@ export default function QueueCallPage() {
             </div>
           )}
 
-          <div className="qc-table-wrap">
+          <div className="qc-table-wrap" style={{ zoom: `${tableZoom}%` } as React.CSSProperties}>
             {loading && <div className="qc-progress-bar"><div className="qc-progress-bar-inner" /></div>}
             {queues.length === 0 && loading ? (
               <div className="qc-empty"><div className="qc-loader" /><p>กำลังโหลด...</p></div>

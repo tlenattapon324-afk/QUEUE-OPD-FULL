@@ -313,6 +313,15 @@
 }
 .qc-sd-action:hover { background: rgba(13,71,161,0.06); color: #0D47A1; }
 .qc-sd-section-label { padding: 12px 16px 4px; font-size: 12px; color: #90A4AE; }
+.qc-sd-section-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; border: none; background: none;
+  font-family: inherit; cursor: pointer; text-align: left;
+  color: #E53935;
+}
+.qc-sd-section-toggle:hover { color: #C62828; }
+.qc-sd-section-arrow { font-size: 10px; transition: transform 0.15s; }
+.qc-sd-section-arrow.open { transform: rotate(180deg); }
 .qc-sd-checkbox {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 16px;
@@ -619,6 +628,26 @@
 }
 .qc-tab:hover { background: rgba(13,71,161,0.1); color: #1565C0; }
 .qc-tab.active { background: #1565C0; border-color: #1565C0; color: #fff; box-shadow: 0 2px 8px rgba(21,101,192,0.3); }
+
+.qc-table-zoom-ctrl {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(13,71,161,0.06);
+  border: 1px solid rgba(13,71,161,0.12);
+  border-radius: 8px;
+  padding: 3px 6px;
+}
+.qc-table-zoom-ctrl button {
+  width: 24px; height: 24px;
+  border: none; background: rgba(13,71,161,0.1);
+  color: #1565C0; border-radius: 5px;
+  cursor: pointer; font-size: 15px; line-height: 1; font-weight: 700;
+  font-family: inherit;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.qc-table-zoom-ctrl button:hover { background: rgba(13,71,161,0.2); }
+.qc-table-zoom-ctrl span { min-width: 38px; text-align: center; font-size: 13px; font-weight: 700; color: #37474F; }
 
 .qc-history-btn {
   margin-left: auto; display: flex; align-items: center; gap: 5px;
