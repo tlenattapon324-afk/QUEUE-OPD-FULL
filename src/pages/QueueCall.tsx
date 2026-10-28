@@ -686,7 +686,10 @@ export default function QueueCallPage() {
   // doctor/category (opd_qs_slot.doctor_code, e.g. "คิวผู้ป่วยนอก"/"คิว ศัลยกรรม"), not the visit's
   // kskdepartment. Every other mode keeps using department as before. The "แผนก" table column
   // always shows q.department regardless of mode — only this filter's grouping changes.
-  const roomKeyOf = (q: QueueRow) => mode === 'slot' ? (q.slot_doctor_name || '') : (q.department || '')
+  // Some sites never populate doctor_code on opd_qs_slot (or set it to one fixed value for every
+  // row), which collapsed the filter to a single option or none at all. Fall back to the real
+  // department per row so the filter still has useful, varied choices at those sites.
+  const roomKeyOf = (q: QueueRow) => mode === 'slot' ? (q.slot_doctor_name || q.department || '') : (q.department || '')
 
   const deptOptions = Array.from(new Set(activeQueues.map(roomKeyOf).filter(Boolean))).sort()
 
