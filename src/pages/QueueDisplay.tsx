@@ -1016,14 +1016,17 @@ export default function QueueDisplayPage() {
     }))
   }
 
-  // เรียกแล้วไม่มา — ขอบเขตเดียวกับคิวถัดไป: ใช้ห้องตรวจที่เลือกไว้ ถ้าไม่ได้เลือกไว้ใช้แผนก
-  // ของคิวล่าสุดที่เพิ่งเรียกแทน ไม่งั้นทุกจอจะเห็นคิวไม่มาของทุกห้องตรวจปนกันหมด
-  const noShowScopeDepts = config.filterDepts.length > 0
-    ? config.filterDepts
-    : (lastCalled?.department ? [lastCalled.department] : [])
-  const filteredNoShow = noShowScopeDepts.length === 0
-    ? noShowQueues
-    : noShowQueues.filter(q => q.department && noShowScopeDepts.includes(q.department))
+  // เรียกแล้วไม่มา — ขอบเขตตามช่องบริการที่จอนี้แสดงจริง (visibleSPs/displayChannels) ไม่ใช่
+  // "แผนกของคิวล่าสุดที่เรียก" แบบเดิม — ค่าหลังนี้มาจาก broadcast ที่ทุกจอได้รับเหมือนกัน จอไหน
+  // เรียกล่าสุดก็ทำให้ทุกจอ (รวมถึงจอห้องอื่น) เปลี่ยนขอบเขตตาม ทำให้คิวไม่มาของทุกห้องปนกันหมด
+  // ช่องบริการของแต่ละจอกลับคงที่ตามที่ตั้งค่าไว้จริง จึงใช้แยกคิวไม่มาต่อจอได้แม่นยำกว่า
+  // ยังคง config.filterDepts ไว้เป็นตัวกรองแผนกเพิ่มเติม (ถ้ามีการตั้งค่า) ควบคู่กับช่องบริการ
+  const noShowScopeChannels = visibleSPs.map(sp => normalizeSpId(sp.id))
+  const filteredNoShow = noShowQueues.filter(q => {
+    const inChannel = noShowScopeChannels.length === 0 || noShowScopeChannels.includes(normalizeSpId(q.servicePoint))
+    const inDept = config.filterDepts.length === 0 || (!!q.department && config.filterDepts.includes(q.department))
+    return inChannel && inDept
+  })
 
   const fontFace = `'${config.font}', 'Sarabun', 'Tahoma', sans-serif`
   const animClass = { fade: 'anim-fade', slide: 'anim-slide', scale: 'anim-scale', bounce: 'anim-bounce' }[config.animationType]
